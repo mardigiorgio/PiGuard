@@ -23,5 +23,3 @@ uvicorn==0.35.0
 uvloop==0.21.0
 watchfiles==1.1.0
 websockets==15.0.1
-# Editable Git install with no remote (wids-pi==0.1.0)
--e /home/marcodigiorgio/Documents/CODE/wipi

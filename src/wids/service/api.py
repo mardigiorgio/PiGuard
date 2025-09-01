@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import select, text
+from sqlalchemy import func
 import uvicorn
 import asyncio, json, pathlib
 
@@ -44,8 +45,8 @@ def health():
 
 @app.get("/api/overview", dependencies=[Depends(require_key)])
 def overview(db=Depends(get_db)):
-    events = db.exec(select(text("count(1)")).select_from(Event)).one()[0]
-    alerts = db.exec(select(text("count(1)")).select_from(Alert)).one()[0]
+    events = db.exec(select(func.count()).select_from(Event)).scalar_one()
+    alerts = db.exec(select(func.count()).select_from(Alert)).scalar_one()
     return {"events": events, "alerts": alerts}
 
 @app.get("/api/ssids", dependencies=[Depends(require_key)])

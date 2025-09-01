@@ -8,3 +8,4 @@ Requires-Dist: sqlmodel
 Requires-Dist: pydantic
 Requires-Dist: pyyaml
 Requires-Dist: loguru
+Requires-Dist: scapy
