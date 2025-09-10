@@ -27,6 +27,13 @@ class Alert(SQLModel, table=True):
     summary: str
     acknowledged: bool = False
 
+class Log(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ts: datetime
+    source: str   # e.g., 'sniffer' | 'sensor' | 'api'
+    level: str    # e.g., 'info' | 'warn' | 'error'
+    message: str
+
 def get_engine(db_path: str):
     # Ensure parent directory exists for the SQLite file
     try:

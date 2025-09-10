@@ -1,7 +1,0 @@
-fastapi
-uvicorn[standard]
-sqlmodel
-pydantic
-pyyaml
-loguru
-scapy

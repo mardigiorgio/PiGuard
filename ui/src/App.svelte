@@ -3,16 +3,21 @@
   import Overview from './routes/Overview.svelte'
   import Alerts from './routes/Alerts.svelte'
   import Defense from './routes/Defense.svelte'
+  import Device from './routes/Device.svelte'
+  import Logs from './routes/Logs.svelte'
+  import Notifications from './lib/Notifications.svelte'
 
   let tab = 'overview'
   const tabs = [
     { id: 'overview', label: 'Overview', comp: Overview },
     { id: 'alerts', label: 'Alerts', comp: Alerts },
     { id: 'defense', label: 'Defense', comp: Defense },
+    { id: 'device', label: 'Device', comp: Device },
+    { id: 'logs', label: 'Logs', comp: Logs },
   ]
 </script>
 
-<div class="max-w-5xl mx-auto p-4">
+<div class="max-w-5xl mx-auto p-4 relative">
   <h1 class="text-2xl font-bold mb-4">WIDS</h1>
   <nav class="flex gap-2 mb-4">
     {#each tabs as t}
@@ -26,13 +31,17 @@
       <Overview />
     {:else if tab === 'alerts'}
       <Alerts />
-    {:else}
+    {:else if tab === 'defense'}
       <Defense />
+    {:else if tab === 'device'}
+      <Device />
+    {:else}
+      <Logs />
     {/if}
   </div>
   <p class="text-xs text-slate-500 mt-4">API: /api — set API key in ui/src/lib/api.js</p>
+  <Notifications />
   </div>
 
 <style>
 </style>
-

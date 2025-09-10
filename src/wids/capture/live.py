@@ -1,7 +1,8 @@
 from datetime import datetime
 from scapy.all import sniff, Dot11, Dot11Beacon, Dot11Deauth, Dot11Disas, Dot11Elt, RadioTap
+import threading, time, subprocess, random
 
-from wids.db import get_engine, init_db, ensure_schema, session, Event
+from wids.db import get_engine, init_db, ensure_schema, session, Event, Log
 from wids.ie.rsn import parse_rsn_info
 
 
@@ -75,19 +76,53 @@ def _extract_rssi(pkt):
     return None
 
 
-def run_sniffer(cfg: dict):
+def run_sniffer(cfg: dict, config_path: str | None = None):
     """Start a Scapy sniffer on cfg['capture']['iface'] and insert Event rows."""
     iface = cfg.get("capture", {}).get("iface")
     if not iface:
         raise RuntimeError("capture.iface not configured")
 
+    def log_db(level: str, msg: str):
+        try:
+            with session(engine) as db:
+                db.add(Log(ts=datetime.utcnow(), source="sniffer", level=level, message=msg))
+                db.commit()
+        except Exception:
+            pass
+    log_db("info", f"sniffer starting on iface={iface}")
+
     engine = get_engine(cfg["database"]["path"])
     init_db(engine)
     ensure_schema(engine)
 
+    # Sniffer tuning from config (optional)
+    sncfg = (cfg.get("sniffer") or {}) if isinstance(cfg, dict) else {}
+    parse_rsn = bool(sncfg.get("parse_rsn", False))
+    log_stats_enabled = bool(sncfg.get("log_stats", False))
+    stats_period = int(sncfg.get("stats_period_sec", 10) or 10)
+
+    stats = {
+        "seen": 0,
+        "beacon": 0,
+        "deauth": 0,
+        "disassoc": 0,
+        "last_log": 0.0,
+    }
+
+    def _maybe_log():
+        now = time.time()
+        if log_stats_enabled and (now - stats["last_log"]) >= max(1, stats_period):
+            buf_len = len(getattr(handle, "_buf", []))
+            log_db(
+                "info",
+                f"sniffer stats: seen={stats['seen']} beacon={stats['beacon']} deauth={stats['deauth']} disassoc={stats['disassoc']} buf={buf_len}",
+            )
+            stats["last_log"] = now
+
     def handle(pkt):
         if not pkt.haslayer(Dot11):
             return
+        stats["seen"] += 1
 
         d11 = pkt[Dot11]
         ev_type = None
@@ -95,11 +130,16 @@ def run_sniffer(cfg: dict):
         if pkt.haslayer(Dot11Beacon):
             ev_type = "mgmt.beacon"
             ssid = _extract_ssid(pkt)
+            stats["beacon"] += 1
         elif pkt.haslayer(Dot11Deauth):
             ev_type = "mgmt.deauth"
+            stats["deauth"] += 1
         elif pkt.haslayer(Dot11Disas):
             ev_type = "mgmt.disassoc"
+            stats["disassoc"] += 1
         else:
+            # Not a frame we persist — still log rate
+            _maybe_log()
             return
 
         src = getattr(d11, 'addr2', None)
@@ -108,17 +148,10 @@ def run_sniffer(cfg: dict):
         chan, band = _derive_chan_band(pkt)
         rssi = _extract_rssi(pkt)
 
-        # Defensive scoping: always insert beacons. For deauth/disassoc, apply basic scoping
-        defense = cfg.get("defense", {})
-        defense_ssid = (defense.get("ssid") or "").strip()
-        allowed_bssids = set(b.lower() for b in defense.get("allowed_bssids", []) if isinstance(b, str))
-        if ev_type in ("mgmt.deauth", "mgmt.disassoc") and defense_ssid:
-            if allowed_bssids and (not bssid or bssid.lower() not in allowed_bssids):
-                return
-            # else, if no allowlist, insert and let detectors filter
+        # Always insert deauth/disassoc; filtering is done by detectors for accuracy.
 
         rsn = {}
-        if ev_type == "mgmt.beacon":
+        if ev_type == "mgmt.beacon" and parse_rsn:
             rsn = parse_rsn_info(pkt) or {}
 
         e = Event(
@@ -135,16 +168,21 @@ def run_sniffer(cfg: dict):
             rsn_ciphers=",".join(sorted(rsn.get("ciphers", []))) if rsn else None,
         )
 
-        # Batch insertions
+        # Batch insertions with periodic flush
         if not hasattr(handle, "_buf"):
             handle._buf = []  # type: ignore[attr-defined]
+            handle._last_flush = 0.0  # type: ignore[attr-defined]
         handle._buf.append(e)  # type: ignore[attr-defined]
-        if len(handle._buf) >= 200:  # type: ignore[attr-defined]
+        now = time.time()
+        should_flush = (len(handle._buf) >= 200) or (now - getattr(handle, "_last_flush", 0.0) >= 1.0)  # type: ignore[attr-defined]
+        if should_flush:
             with session(engine) as db:
                 for x in handle._buf:  # type: ignore[attr-defined]
                     db.add(x)
                 db.commit()
             handle._buf.clear()  # type: ignore[attr-defined]
+            handle._last_flush = now  # type: ignore[attr-defined]
+        _maybe_log()
 
     # Flush any remaining buffered events periodically
     def flush():
@@ -155,8 +193,184 @@ def run_sniffer(cfg: dict):
                 db.commit()
             handle._buf.clear()  # type: ignore[attr-defined]
 
-    try:
-        sniff(iface=iface, store=False, prn=handle)
-    finally:
-        flush()
+    # Optional: channel hopper
+    stop_evt = threading.Event()
 
+    def _chan_to_freq(band: str, ch: int) -> int:
+        try:
+            ch = int(ch)
+        except Exception:
+            return 0
+        if band == "2.4":
+            return 2407 + 5 * ch
+        if band == "5":
+            return 5000 + 5 * ch
+        if band == "6":
+            return 5955 + (ch - 1) * 5
+        return 0
+
+    def _hop_loop():
+        import os, yaml
+        last_plan = None
+        last_plan_ts = 0.0
+        last_plan_key = None  # (plan_src, frozenset(channels))
+        dwell_ms = 250
+        idx = 0
+        last_cfg_mtime = 0.0
+
+        def _build_plan():
+            nonlocal dwell_ms, last_plan, last_plan_ts, last_plan_key
+            # Prefer reading from config file to support live updates from API/UI
+            hop_cfg = None
+            try:
+                if config_path and os.path.exists(config_path):
+                    st = os.stat(config_path)
+                    nonlocal last_cfg_mtime
+                    if st.st_mtime > last_cfg_mtime:
+                        last_cfg_mtime = st.st_mtime
+                    doc = yaml.safe_load(open(config_path, 'r').read()) or {}
+                    hop_cfg = ((doc.get('capture') or {}).get('hop') or {})
+                else:
+                    hop_cfg = ((cfg.get('capture') or {}).get('hop') or {})
+            except Exception:
+                hop_cfg = ((cfg.get('capture') or {}).get('hop') or {})
+
+            enabled = bool(hop_cfg.get('enabled', False))
+            if not enabled:
+                return enabled, [], None
+
+            # Simple modes only: lock | list | all
+            mode = (hop_cfg.get('mode') or 'all').strip().lower()
+            if mode not in {'lock','list','all'}:
+                mode = 'all'
+
+            bands = hop_cfg.get('bands') or ["2.4", "5"]
+            # Precompute union of channels for 'all' mode; favor full 2.4 coverage if unset
+            chans = []
+            c24 = hop_cfg.get('channels_24')
+            if c24 is None and mode == 'all' and '2.4' in bands:
+                c24 = list(range(1, 14))
+            if '2.4' in bands:
+                chans += list(c24 or [1, 6, 11])
+            if '5' in bands:
+                chans += list(hop_cfg.get('channels_5') or [36, 40, 44, 48, 149, 153, 157, 161])
+            if '6' in bands:
+                chans += list(hop_cfg.get('channels_6') or [])
+
+            # Replace legacy smart modes with simple, explicit modes only: lock | list | all
+            plan_src = 'static'
+            if mode == 'lock':
+                lc = hop_cfg.get('lock_channel')
+                try:
+                    chans = [int(lc)] if lc is not None else []
+                except Exception:
+                    chans = []
+                plan_src = 'lock'
+            elif mode == 'list':
+                v = hop_cfg.get('list_channels') or []
+                vv = []
+                for x in v:
+                    try:
+                        vv.append(int(x))
+                    except Exception:
+                        pass
+                chans = vv
+                plan_src = 'list'
+            else:  # 'all'
+                plan_src = 'all'
+
+            plan = []
+            for ch in chans:
+                try:
+                    ch = int(ch)
+                except Exception:
+                    continue
+                if 1 <= ch <= 14 and '2.4' in bands:
+                    plan.append(("2.4", ch))
+                elif 36 <= ch <= 196 and '5' in bands:
+                    plan.append(("5", ch))
+                elif 1 <= ch <= 233 and '6' in bands:
+                    plan.append(("6", ch))
+
+            dwell_ms = int(hop_cfg.get('dwell_ms', 40) or 40)
+            # Decide whether to adopt a new plan or keep the previous order
+            if plan:
+                plan_channels = [p[1] for p in plan]
+                key = (plan_src or mode or 'static', frozenset(plan_channels))
+            else:
+                key = None
+            if plan and key != last_plan_key:
+                # New channel set: create a fresh order once and remember it
+                random.shuffle(plan)
+                try:
+                    with session(engine) as db:
+                        src = plan_src or mode or 'static'
+                        db.add(Log(ts=datetime.utcnow(), source="sniffer", level="info", message=f"hop plan {src} channels={','.join(str(p[1]) for p in plan)}"))
+                        db.commit()
+                except Exception:
+                    pass
+                last_plan = list(plan)
+                last_plan_ts = time.time()
+                last_plan_key = key
+            # Reuse prior order if channel set hasn't changed
+            if plan and key == last_plan_key and last_plan:
+                plan = list(last_plan)
+            return True, plan, (plan_src or mode or 'static')
+
+        while not stop_evt.is_set():
+            try:
+                enabled, plan, _plan_src = _build_plan()
+                if not enabled or not plan:
+                    # Disabled or no plan — wait a bit and retry (supports live enable)
+                    stop_evt.wait(1.0)
+                    continue
+
+                band, ch = plan[idx % len(plan)]
+                idx += 1
+                freq = _chan_to_freq(band, ch)
+                cmd = ["iw", "dev", iface, "set", "freq", str(freq)] if freq else ["iw", "dev", iface, "set", "channel", str(ch)]
+                try:
+                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
+                # Optional: log occasionally
+                if idx % len(plan) == 1:
+                    try:
+                        with session(engine) as db:
+                            db.add(Log(ts=datetime.utcnow(), source="sniffer", level="info", message=f"hop step mode={_plan_src} band={band} ch={ch} plan_sz={len(plan)}"))
+                            db.commit()
+                    except Exception:
+                        pass
+                # Allow faster hopping; floor at 20ms to avoid hammering drivers
+                stop_evt.wait(max(dwell_ms, 20) / 1000.0)
+            except Exception as e:
+                # Make the hopper resilient to unexpected errors
+                try:
+                    with session(engine) as db:
+                        db.add(Log(ts=datetime.utcnow(), source="sniffer", level="error", message=f"hop loop error: {e}"))
+                        db.commit()
+                except Exception:
+                    pass
+                stop_evt.wait(1.0)
+
+    hopper = threading.Thread(target=_hop_loop, name="chan-hopper", daemon=True)
+    hopper.start()
+
+    try:
+        # Filter at the capture layer to reduce Python work
+        def _lfilter(p):
+            try:
+                if not p.haslayer(Dot11):
+                    return False
+                return p.haslayer(Dot11Beacon) or p.haslayer(Dot11Deauth) or p.haslayer(Dot11Disas)
+            except Exception:
+                return False
+        sniff(iface=iface, store=False, prn=handle, lfilter=_lfilter)
+    finally:
+        stop_evt.set()
+        try:
+            hopper.join(timeout=1.0)
+        except Exception:
+            pass
+        flush()
+        log_db("info", "sniffer stopped")

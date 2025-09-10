@@ -32,3 +32,41 @@ export function sse(url, onData) {
   return es
 }
 
+// Interface & capture
+export async function getIfaces() {
+  return request('/ifaces')
+}
+export async function getIface(dev) {
+  const q = dev ? `?dev=${encodeURIComponent(dev)}` : ''
+  return request(`/iface${q}`)
+}
+export async function getCapture() {
+  return request('/capture')
+}
+export async function postCapture(payload) {
+  return request('/capture', { method: 'POST', body: JSON.stringify(payload) })
+}
+export async function postMonitor(payload) {
+  return request('/iface/monitor', { method: 'POST', body: JSON.stringify(payload) })
+}
+export async function postChannel(payload) {
+  return request('/iface/channel', { method: 'POST', body: JSON.stringify(payload) })
+}
+export async function postMonitorClone(payload) {
+  return request('/iface/monitor_clone', { method: 'POST', body: JSON.stringify(payload) })
+}
+// Removed: postSnifferRestart (sniffer restarts are not needed; hopper hot-reloads config)
+
+// Logs
+export async function getLogs({ since_id = null, limit = 200, source = '' } = {}) {
+  const params = new URLSearchParams()
+  if (since_id != null) params.set('since_id', String(since_id))
+  if (limit) params.set('limit', String(limit))
+  if (source) params.set('source', source)
+  const q = params.toString() ? `?${params.toString()}` : ''
+  return request(`/logs${q}`)
+}
+
+export async function postAdminClear(tables = ['events','alerts']) {
+  return request('/admin/clear', { method: 'POST', body: JSON.stringify({ tables }) })
+}

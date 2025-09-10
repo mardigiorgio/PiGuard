@@ -6,10 +6,18 @@
   let ssids = []
   let msg = ''
   let err = ''
+  // Local CSV mirrors for inputs
+  let allowedBssidsCsv = ''
+  let allowedChannelsCsv = ''
+  let allowedBandsCsv = ''
 
   async function load() {
     try { defense = await getDefense() } catch {}
     try { ssids = await getSSIDs() } catch {}
+    // Initialize CSV from defense
+    allowedBssidsCsv = (defense.allowed_bssids || []).join(',')
+    allowedChannelsCsv = (defense.allowed_channels || []).join(',')
+    allowedBandsCsv = (defense.allowed_bands || []).join(',')
   }
   onMount(load)
 
@@ -37,21 +45,32 @@
       {#each ssids as s}
         <option value={s.ssid}>{s.ssid}</option>
       {/each}
+      {#if defense.ssid && !ssids.some(s => s.ssid === defense.ssid)}
+        <option value={defense.ssid}>(current) {defense.ssid}</option>
+      {/if}
     </select>
   </div>
 
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
     <div>
       <label class="block text-sm text-slate-600 mb-1">Allowed BSSIDs (comma separated)</label>
-      <input class="border rounded px-2 py-1 w-full" bind:value={(defense.allowed_bssids = (defense.allowed_bssids || []).join(','))} on:change={(e)=> defense.allowed_bssids = e.target.value.split(',').map(x=>x.trim()).filter(Boolean)} />
+      <input class="border rounded px-2 py-1 w-full" bind:value={allowedBssidsCsv} on:change={() => {
+        defense.allowed_bssids = allowedBssidsCsv.split(',').map(x=>x.trim()).filter(Boolean)
+      }} />
     </div>
     <div>
       <label class="block text-sm text-slate-600 mb-1">Allowed Channels (comma separated)</label>
-      <input class="border rounded px-2 py-1 w-full" bind:value={(defense.allowed_channels = (defense.allowed_channels || []).join(','))} on:change={(e)=> defense.allowed_channels = e.target.value.split(',').map(x=>x.trim()).filter(Boolean)} />
+      <input class="border rounded px-2 py-1 w-full" bind:value={allowedChannelsCsv} on:change={() => {
+        defense.allowed_channels = allowedChannelsCsv.split(',')
+          .map(x=>parseInt(x))
+          .filter(x=>!isNaN(x))
+      }} />
     </div>
     <div>
       <label class="block text-sm text-slate-600 mb-1">Allowed Bands (comma separated, e.g., 2.4,5,6)</label>
-      <input class="border rounded px-2 py-1 w-full" bind:value={(defense.allowed_bands = (defense.allowed_bands || []).join(','))} on:change={(e)=> defense.allowed_bands = e.target.value.split(',').map(x=>x.trim()).filter(Boolean)} />
+      <input class="border rounded px-2 py-1 w-full" bind:value={allowedBandsCsv} on:change={() => {
+        defense.allowed_bands = allowedBandsCsv.split(',').map(x=>x.trim()).filter(Boolean)
+      }} />
     </div>
   </div>
 

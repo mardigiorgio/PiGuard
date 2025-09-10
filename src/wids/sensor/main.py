@@ -1,62 +1,30 @@
 # src/wids/sensor/main.py
 from wids.common import load_config
-from wids.db import get_engine, init_db, ensure_schema, session, Event, Alert
+from wids.db import get_engine, init_db, ensure_schema, session, Event, Alert, Log
 from wids.alerts import send_discord, send_email
 
 from sqlmodel import select, text
 from datetime import datetime, timedelta
-import argparse, time, signal
+import argparse, time, signal, os
 
 def detect_deauths(db, defense: dict, window_sec=10, per_src_limit=30, global_limit=80):
-    "Count deauths scoped to the defended SSID."
+    "Count deauths globally (no SSID scoping) and return totals and per-source counts."
     since = datetime.utcnow() - timedelta(seconds=window_sec)
-    rows = db.exec(select(Event).where(Event.ts >= since)).all()
-    counts = {}
+    rows = db.exec(
+        select(Event).where(Event.ts >= since).where(Event.type == "mgmt.deauth")
+    ).all()
+    counts: dict[str, int] = {}
     total = 0
-
-    def_ssid = (defense.get("ssid") or "").strip()
-    allow_bssids = set(b.lower() for b in defense.get("allowed_bssids", []) if isinstance(b, str))
-
-    # Build known BSSIDs for defended SSID when no explicit allowlist
-    known_bssids = set()
-    if def_ssid and not allow_bssids:
-        lookback = datetime.utcnow() - timedelta(minutes=10)
-        beacons = db.exec(
-            select(Event)
-            .where(Event.ts >= lookback)
-            .where(Event.type == "mgmt.beacon")
-            .where(Event.ssid == def_ssid)
-        ).all()
-        known_bssids = set(b.bssid.lower() for b in beacons if b.bssid)
-
     for e in rows:
-        if e.type != "mgmt.deauth":
-            continue
-        # Scope to defense
-        if not def_ssid:
-            continue
-        if allow_bssids:
-            if not e.bssid or e.bssid.lower() not in allow_bssids:
-                continue
-        else:
-            if e.bssid:
-                if e.bssid.lower() not in known_bssids:
-                    continue
-            else:
-                # No BSSID: check if src or dst is a known BSSID
-                sd = (e.src or "").lower(), (e.dst or "").lower()
-                if not any(x in known_bssids for x in sd):
-                    continue
-
-        src = e.src or "unknown"
+        src = (e.src or "unknown").lower()
         counts[src] = counts.get(src, 0) + 1
         total += 1
-
     offenders = [s for s, c in counts.items() if c >= per_src_limit]
-    triggered = bool(offenders) or total >= global_limit
+    # Trigger only on global threshold
+    triggered = total >= int(global_limit or 0)
     return triggered, total, offenders, counts
 
-def loop(cfg):
+def loop(cfg, config_path: str | None = None):
     engine = get_engine(cfg["database"]["path"])
     init_db(engine)
 
@@ -66,7 +34,13 @@ def loop(cfg):
         db.exec(text("CREATE INDEX IF NOT EXISTS idx_events_ts ON event(ts);"))
         db.exec(text("CREATE INDEX IF NOT EXISTS idx_events_type_ts ON event(type, ts);"))
         db.commit()
-    print("[db] indexes ensured")
+    # optional DB ready log
+    try:
+        with session(engine) as db:
+            db.add(Log(ts=datetime.utcnow(), source="sensor", level="info", message="db indexes ensured"))
+            db.commit()
+    except Exception:
+        pass
 
     w = cfg.get("thresholds", {}).get("deauth", {}).get("window_sec", 10)
     per_src = cfg.get("thresholds", {}).get("deauth", {}).get("per_src_limit", 30)
@@ -77,6 +51,10 @@ def loop(cfg):
 
     last_fire_ts = 0.0
     last_sig = None
+    # Smart logging state
+    last_logged_total = None
+    last_logged_offenders = set()
+    last_log_ts = 0.0
     stop = False
 
     def _sig(*_):
@@ -90,14 +68,51 @@ def loop(cfg):
     defense = cfg.get("defense", {})
     def_ssid = (defense.get("ssid") or "").strip()
     armed = bool(def_ssid)
+    def log_db(level: str, msg: str):
+        try:
+            with session(engine) as db:
+                db.add(Log(ts=datetime.utcnow(), source="sensor", level=level, message=msg))
+                db.commit()
+        except Exception:
+            pass
+
     if not armed:
-        print("[sensor] not armed (no defended SSID)")
+        log_db("info", "sensor not armed (no defended SSID) — deauth detection still active")
 
     # In-memory RSN baseline per allowed BSSID
     rsn_baseline = {}  # bssid(lower) -> { 'akms': set, 'ciphers': set }
 
-    with session(engine) as db:
-        while not stop:
+    # Simple hot-reload support for config updates from the API/UI
+    last_cfg_check = 0.0
+    cfg_mtime = None
+    if config_path and os.path.exists(config_path):
+        try:
+            cfg_mtime = os.stat(config_path).st_mtime
+        except Exception:
+            cfg_mtime = None
+
+    while not stop:
+        with session(engine) as db:
+            # Hot-reload defense/thresholds if file changed (check every 2s)
+            now_ts = time.time()
+            if config_path and (now_ts - last_cfg_check) >= 2.0:
+                last_cfg_check = now_ts
+                try:
+                    st = os.stat(config_path)
+                    if not cfg_mtime or st.st_mtime > cfg_mtime:
+                        cfg_mtime = st.st_mtime
+                        cfg = load_config(config_path)
+                        defense = cfg.get("defense", {})
+                        def_ssid = (defense.get("ssid") or "").strip()
+                        armed = bool(def_ssid)
+                        w = cfg.get("thresholds", {}).get("deauth", {}).get("window_sec", w)
+                        per_src = cfg.get("thresholds", {}).get("deauth", {}).get("per_src_limit", per_src)
+                        glob = cfg.get("thresholds", {}).get("deauth", {}).get("global_limit", glob)
+                        cooldown = cfg.get("thresholds", {}).get("deauth", {}).get("cooldown_sec", cooldown)
+                        log_db("info", f"sensor reloaded: armed={armed} ssid='{def_ssid}' window={w}s per_src={per_src} global={glob}")
+                except Exception as e:
+                    log_db("error", f"sensor config reload failed: {e}")
+
             # --- Deauth detection (scoped) ---
             trig, total, offenders, counts = detect_deauths(db, defense, w, per_src, glob)
             sig = ("deauth_flood", total, tuple(sorted(offenders)))
@@ -105,15 +120,26 @@ def loop(cfg):
             too_soon = (now - last_fire_ts) < cooldown
             same_as_before = (sig == last_sig)
 
-            if armed and trig and not (too_soon and same_as_before):
+            # Smart logging: only log when there is activity or state changes
+            if total > 0:
+                changed = (last_logged_total != total) or (set(offenders) != last_logged_offenders)
+                if changed or (time.time() - last_log_ts) >= 15:
+                    log_db("info", f"sensor deauth: total={total} offenders={len(offenders)} window={w}s")
+                    last_logged_total = total
+                    last_logged_offenders = set(offenders)
+                    last_log_ts = time.time()
+
+            # Fire alert solely based on global threshold; ignore 'armed'
+            if trig and not (too_soon and same_as_before):
                 a = Alert(
                     ts=datetime.utcnow(),
-                    severity="critical" if total >= glob*2 or offenders else "warn",
+                    severity="critical" if total >= glob*2 else "warn",
                     kind="deauth_flood",
                     summary=f"Deauth burst: total={total}, offenders={len(offenders)}",
                 )
-                db.add(a); db.commit()
-                print(f"[ALERT] {a.summary}")
+                db.add(a)
+                db.commit()
+                log_db("warn", f"alert: {a.kind} {a.summary}")
 
                 # Notifications (best-effort)
                 try:
@@ -134,7 +160,7 @@ def loop(cfg):
                             body=msg,
                         )
                 except Exception as e:
-                    print(f"[notify] failed: {e}")
+                    log_db("error", f"notify failed: {e}")
 
                 last_fire_ts = now
                 last_sig = sig
@@ -187,8 +213,9 @@ def loop(cfg):
                         kind="rogue_ap",
                         summary=reason,
                     )
-                    db.add(a); db.commit()
-                    print(f"[ALERT] {a.summary}")
+                    db.add(a)
+                    db.commit()
+                    log_db("warn", f"alert: {a.kind} {a.summary}")
 
                     # Optional: minimal Discord notify for rogue AP
                     try:
@@ -196,18 +223,18 @@ def loop(cfg):
                         if cfg_alerts.get("discord_webhook"):
                             send_discord(cfg_alerts["discord_webhook"], f"[WIDS] {a.kind} — {a.summary}")
                     except Exception as ex:
-                        print(f"[notify] failed: {ex}")
+                        log_db("error", f"notify failed: {ex}")
 
-            time.sleep(2)
+        time.sleep(2)
 
-    print("[sensor] exited cleanly")
+    log_db("info", "sensor exited cleanly")
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
     args = ap.parse_args()
     cfg = load_config(args.config)
-    loop(cfg)
+    loop(cfg, args.config)
 
 if __name__ == "__main__":
     main()
