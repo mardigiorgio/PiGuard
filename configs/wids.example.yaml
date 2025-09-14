@@ -1,4 +1,7 @@
-# Database location (relative to this file is supported)
+# Database location
+# - For dev, a relative path (below) is fine and will be created.
+# - For production installs (systemd services), prefer an absolute path like:
+#     /var/lib/piguard/db.sqlite
 database:
   path: "data/db.sqlite"
 
@@ -19,6 +22,12 @@ thresholds:
     pwr_window: 20
     pwr_var_threshold: 150
     pwr_cooldown_sec: 10
+
+# Sniffer (optional tuning)
+sniffer:
+  parse_rsn: true          # extract AKM/ciphers from beacons for rogue checks
+  log_stats: false         # periodic capture stats to DB logs
+  stats_period_sec: 10
 
 # Which Wi-Fi interface to sniff in monitor mode
 capture:
@@ -42,7 +51,13 @@ defense:
 # Notifications (optional)
 alerts:
   discord_webhook: ""    # leave empty to disable
-  email: {}              # {} disables email
+  email: {}              # Example:
+  #  smtp_host: smtp.gmail.com
+  #  smtp_port: 587
+  #  username: ""
+  #  password: ""
+  #  from: "PiGuard <alerts@example.com>"
+  #  to: ["you@example.com"]
 
 # Legacy policy disabled — rogue logic uses 'defense' now
 policy: {}
