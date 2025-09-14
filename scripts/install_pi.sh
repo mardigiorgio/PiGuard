@@ -66,11 +66,14 @@ setup_venv() {
 }
 
 set_caps() {
-  # Allow sniffer to run without root
-  local pybin
-  pybin=$(readlink -f "$VENV/bin/python3" || true)
-  if [[ -n "$pybin" ]]; then
-    setcap cap_net_raw,cap_net_admin+eip "$pybin" || true
+  # Default: do NOT set file capabilities to avoid EPERM with systemd's NoNewPrivileges.
+  # If you really want file caps instead of service AmbientCapabilities, set USE_SETCAP=1.
+  if [[ "${USE_SETCAP:-0}" -eq 1 ]]; then
+    local pybin
+    pybin=$(readlink -f "$VENV/bin/python3" || true)
+    if [[ -n "$pybin" ]]; then
+      setcap cap_net_raw,cap_net_admin+eip "$pybin" || true
+    fi
   fi
 }
 

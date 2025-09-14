@@ -13,11 +13,10 @@ Environment=PYTHONPATH=/opt/piguard/src
 ExecStart=/opt/piguard/.venv/bin/python -m wids sniffer --config /etc/piguard/wids.yaml
 Restart=always
 RestartSec=1
-# Allow raw/net admin via capabilities set on the Python interpreter
-AmbientCapabilities=
-CapabilityBoundingSet=
+# Grant network capabilities to this service instead of setting file caps
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
-
