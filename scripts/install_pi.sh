@@ -25,7 +25,7 @@ pkg_install() {
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3 python3-venv python3-pip python3-setuptools python3-dev \
-    git iproute2 iw libcap2-bin \
+    git rsync iproute2 iw libcap2-bin \
     pkg-config libpcap0.8
 }
 
@@ -75,6 +75,10 @@ set_caps() {
 }
 
 build_ui() {
+  if [[ "${SKIP_UI:-0}" -eq 1 ]]; then
+    echo "Skipping UI build (SKIP_UI=1)"
+    return
+  fi
   if command -v npm >/dev/null 2>&1; then
     echo "Building UI..."
     pushd "$APP_DIR/ui" >/dev/null
@@ -96,7 +100,7 @@ install_units() {
 
 sudoers_snippet() {
   cat >/etc/sudoers.d/piguard-iw-ip <<EOF
-Cmnd_Alias PIGUARD_NET = /sbin/ip, /usr/sbin/iw
+Cmnd_Alias PIGUARD_NET = /sbin/ip, /usr/sbin/ip, /usr/sbin/iw, /sbin/iw
 piguard ALL=(root) NOPASSWD: PIGUARD_NET
 Defaults!PIGUARD_NET !requiretty
 EOF
@@ -143,4 +147,3 @@ main() {
 }
 
 main "$@"
-
