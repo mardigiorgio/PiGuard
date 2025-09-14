@@ -12,7 +12,7 @@ def _py():
     return sys.executable
 
 
-@click.group(help="WIDS helper CLI: api | sensor | sniffer | replay | dev")
+@click.group(help="PiGuard helper CLI: api | sensor | sniffer | replay | dev")
 def cli():
     pass
 
@@ -37,7 +37,11 @@ def sensor(config: str):
 
 @cli.command()
 @click.option("--config", required=True, help="Path to wids.yaml")
-def sniffer(config: str):
+@click.option("--dwell", type=float, default=0.1, show_default=True, help="Channel dwell time in seconds (airodump-like)")
+@click.option("--rssi-window", type=int, default=20, show_default=True, help="RSSI window size for variance")
+@click.option("--var-threshold", type=float, default=150.0, show_default=True, help="Variance threshold for PWR flip alert")
+@click.option("--anomaly-log", type=str, default=None, help="Path to write anomaly events (optional)")
+def sniffer(config: str, dwell: float, rssi_window: int, var_threshold: float, anomaly_log: str | None):
     """Run the live sniffer (requires root)."""
     from wids.common import load_config
     from wids.capture.live import run_sniffer
@@ -63,7 +67,15 @@ def sniffer(config: str):
     except Exception:
         pass
 
-    run_sniffer(cfg, config_path=config)
+    dwell_ms = int(max(0, dwell) * 1000)
+    run_sniffer(
+        cfg,
+        config_path=config,
+        dwell_override_ms=dwell_ms if dwell_ms > 0 else None,
+        rssi_window=int(max(2, rssi_window)),
+        var_threshold=float(var_threshold),
+        anomaly_log_file=anomaly_log,
+    )
 
 
 @cli.command()

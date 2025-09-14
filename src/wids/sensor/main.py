@@ -6,6 +6,8 @@ from wids.alerts import send_discord, send_email
 from sqlmodel import select, text
 from datetime import datetime, timedelta
 import argparse, time, signal, os
+from collections import deque, defaultdict
+import statistics
 
 def detect_deauths(db, defense: dict, window_sec=10, per_src_limit=30, global_limit=80):
     "Count deauths globally (no SSID scoping) and return totals and per-source counts."
@@ -46,6 +48,11 @@ def loop(cfg, config_path: str | None = None):
     per_src = cfg.get("thresholds", {}).get("deauth", {}).get("per_src_limit", 30)
     glob = cfg.get("thresholds", {}).get("deauth", {}).get("global_limit", 80)
     cooldown = cfg.get("thresholds", {}).get("deauth", {}).get("cooldown_sec", 60)
+    # Rogue/PWR anomaly thresholds (defaults)
+    rogue_cfg = (cfg.get("thresholds", {}).get("rogue", {}) or {})
+    pwr_win = int(rogue_cfg.get("pwr_window", 20) or 20)
+    pwr_var_threshold = float(rogue_cfg.get("pwr_var_threshold", 150) or 150)
+    pwr_cooldown = int(rogue_cfg.get("pwr_cooldown_sec", 10) or 10)
 
     print(f"[sensor] deauth window={w}s per_src={per_src} global={glob} cooldown={cooldown}s")
 
@@ -81,6 +88,31 @@ def loop(cfg, config_path: str | None = None):
 
     # In-memory RSN baseline per allowed BSSID
     rsn_baseline = {}  # bssid(lower) -> { 'akms': set, 'ciphers': set }
+    # PWR variance tracking
+    pwr_windows: dict[str, deque[int]] = defaultdict(lambda: deque(maxlen=max(3, int(pwr_win))))
+    last_pwr_alert_ts: dict[str, float] = {}
+    # Dynamic tracked BSSIDs if none explicitly allowed
+    tracked_bssids = set()
+    # Deduplicate beacon events to avoid re-adding same RSSI
+    seen_beacon_ids = deque(maxlen=10000)
+    seen_beacon_set = set()
+
+    def _remember_eid(eid: int) -> bool:
+        try:
+            if eid in seen_beacon_set:
+                return False
+            seen_beacon_set.add(eid)
+            seen_beacon_ids.append(eid)
+            # Periodic compaction when deque evicts
+            if len(seen_beacon_set) > len(seen_beacon_ids):
+                try:
+                    seen_beacon_set.clear()
+                    seen_beacon_set.update(seen_beacon_ids)
+                except Exception:
+                    pass
+            return True
+        except Exception:
+            return True
 
     # Simple hot-reload support for config updates from the API/UI
     last_cfg_check = 0.0
@@ -109,6 +141,18 @@ def loop(cfg, config_path: str | None = None):
                         per_src = cfg.get("thresholds", {}).get("deauth", {}).get("per_src_limit", per_src)
                         glob = cfg.get("thresholds", {}).get("deauth", {}).get("global_limit", glob)
                         cooldown = cfg.get("thresholds", {}).get("deauth", {}).get("cooldown_sec", cooldown)
+                        # Rogue runtime thresholds
+                        rogue_cfg = (cfg.get("thresholds", {}).get("rogue", {}) or {})
+                        new_win = int(rogue_cfg.get("pwr_window", pwr_win) or pwr_win)
+                        pwr_var_threshold = float(rogue_cfg.get("pwr_var_threshold", pwr_var_threshold) or pwr_var_threshold)
+                        pwr_cooldown = int(rogue_cfg.get("pwr_cooldown_sec", pwr_cooldown) or pwr_cooldown)
+                        if new_win != pwr_win:
+                            pwr_win = new_win
+                            try:
+                                for b, dq in list(pwr_windows.items()):
+                                    pwr_windows[b] = deque(dq, maxlen=max(3, int(pwr_win)))
+                            except Exception:
+                                pass
                         log_db("info", f"sensor reloaded: armed={armed} ssid='{def_ssid}' window={w}s per_src={per_src} global={glob}")
                 except Exception as e:
                     log_db("error", f"sensor config reload failed: {e}")
@@ -144,7 +188,7 @@ def loop(cfg, config_path: str | None = None):
                 # Notifications (best-effort)
                 try:
                     cfg_alerts = cfg.get("alerts", {})
-                    msg = f"[WIDS] {a.kind} ({a.severity}) — {a.summary}"
+                    msg = f"[PiGuard] {a.kind} ({a.severity}) — {a.summary}"
                     if cfg_alerts.get("discord_webhook"):
                         send_discord(cfg_alerts["discord_webhook"], msg)
                     em = cfg_alerts.get("email", {})
@@ -154,9 +198,9 @@ def loop(cfg, config_path: str | None = None):
                             int(em.get("smtp_port", 587)),
                             em.get("username", ""),
                             em.get("password", ""),
-                            em.get("from", "WIDS <alerts@example.com>"),
+                            em.get("from", "PiGuard <alerts@example.com>"),
                             em.get("to", []),
-                            subject=f"[WIDS] {a.kind} {a.severity}",
+                            subject=f"[PiGuard] {a.kind} {a.severity}",
                             body=msg,
                         )
                 except Exception as e:
@@ -189,6 +233,9 @@ def loop(cfg, config_path: str | None = None):
                 if bssid and bssid in allowed_bssids and (akms or ciphers):
                     if bssid not in rsn_baseline:
                         rsn_baseline[bssid] = {"akms": akms.copy(), "ciphers": ciphers.copy()}
+                # Populate tracked set if no explicit allowlist
+                if not allowed_bssids and bssid:
+                    tracked_bssids.add(bssid)
 
                 reason = None
                 if allowed_bssids and (not bssid or bssid not in allowed_bssids):
@@ -206,6 +253,27 @@ def loop(cfg, config_path: str | None = None):
                             (base.get("ciphers") and ciphers and ciphers != base["ciphers"])):
                             reason = f"SSID {def_ssid} RSN mismatch (akm/cipher) at {e.bssid}"
 
+                # PWR variance anomaly integrated with rogue detection
+                if not reason and e.id is not None and bssid:
+                    try:
+                        if _remember_eid(int(e.id)) and e.rssi is not None:
+                            # Track only defended BSSID(s) either via allowlist or learned set
+                            if (allowed_bssids and bssid in allowed_bssids) or (not allowed_bssids and bssid in tracked_bssids):
+                                dq = pwr_windows[bssid]
+                                dq.append(int(e.rssi))
+                                if len(dq) >= max(3, int(pwr_win) // 2):
+                                    try:
+                                        var = statistics.pvariance(dq)
+                                    except Exception:
+                                        m = sum(dq) / len(dq)
+                                        var = sum((x - m) ** 2 for x in dq) / len(dq)
+                                    now2 = time.time()
+                                    if var > float(pwr_var_threshold) and (now2 - last_pwr_alert_ts.get(bssid, 0.0) >= pwr_cooldown):
+                                        reason = f"SSID {def_ssid} power variance anomaly at {e.bssid} (var={var:.1f}, n={len(dq)})"
+                                        last_pwr_alert_ts[bssid] = now2
+                    except Exception:
+                        pass
+
                 if reason:
                     a = Alert(
                         ts=datetime.utcnow(),
@@ -221,7 +289,7 @@ def loop(cfg, config_path: str | None = None):
                     try:
                         cfg_alerts = cfg.get("alerts", {})
                         if cfg_alerts.get("discord_webhook"):
-                            send_discord(cfg_alerts["discord_webhook"], f"[WIDS] {a.kind} — {a.summary}")
+                            send_discord(cfg_alerts["discord_webhook"], f"[PiGuard] {a.kind} — {a.summary}")
                     except Exception as ex:
                         log_db("error", f"notify failed: {ex}")
 

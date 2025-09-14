@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { getIfaces, getIface, getCapture, postCapture, postMonitor, postChannel } from '../lib/api'
+  import { getIfaces, getIface, getCapture, postCapture, postMonitor, postMonitorClone, postChannel } from '../lib/api'
 
   let ifaces = []
   let dev = ''
@@ -12,7 +12,7 @@
   let hopMode = 'lock' // 'lock' | 'list' | 'all'
   let hopListCsv = ''
   let lockChan = '11'
-  let dwellMs = '250'
+  let dwellMs = '100'
 
   async function refreshInfo() {
     err = ''
@@ -35,7 +35,7 @@
       lockChan = String((cap && cap.hop && cap.hop.lock_channel) || chan || '11')
       const list = (cap && cap.hop && cap.hop.list_channels) || []
       hopListCsv = list.join(',')
-      dwellMs = String((cap && cap.hop && cap.hop.dwell_ms) || '250')
+      dwellMs = String((cap && cap.hop && cap.hop.dwell_ms) || '100')
     } catch {}
     try {
       ifaces = await getIfaces()
@@ -69,6 +69,31 @@
       await postMonitor({ dev, channel: chan ? parseInt(chan) : undefined, force: true })
       msg = `Interface ${dev} set to monitor and up.`
       await refreshInfo()
+    } catch (e) {
+      // If in-place switch is not supported or device busy, suggest/try creating monitor clone
+      if ((e.message || '').includes('409') || (e.message || '').toLowerCase().includes('monitor_clone')) {
+        try {
+          const name = dev.endsWith('mon') ? dev : `${dev}mon`
+          await postMonitorClone({ dev, name, channel: chan ? parseInt(chan) : undefined, make_default: true })
+          msg = `Created monitor interface ${name} and set as capture.iface.`
+          await load()
+          return
+        } catch (e2) {
+          err = e2.message
+          return
+        }
+      }
+      err = e.message
+    }
+  }
+
+  async function createMonitorIface() {
+    err = msg = ''
+    try {
+      const name = dev.endsWith('mon') ? dev : `${dev}mon`
+      await postMonitorClone({ dev, name, channel: chan ? parseInt(chan) : undefined, make_default: true })
+      msg = `Created monitor interface ${name} and set as capture.iface.`
+      await load()
     } catch (e) {
       err = e.message
     }
@@ -164,12 +189,13 @@
     <div class="mt-4 flex flex-wrap gap-2">
       <button class="px-3 py-2 rounded bg-slate-900 text-white" on:click={async ()=>{ hopEnabled = true; await applyHop(); await refreshInfo(); }}>Apply</button>
       <button class="px-3 py-2 rounded bg-slate-900 text-white" on:click={makeMonitor}>Monitor + Up</button>
+      <button class="px-3 py-2 rounded bg-emerald-700 text-white" on:click={createMonitorIface}>Create Monitor (safer)</button>
     </div>
   </div>
 
   <div class="text-xs text-slate-500 space-y-1">
     <div>Actions may require sudo permissions on the server; if denied, run: <code>python -m wids iface-up --dev {dev}</code></div>
-    <div>Warning: Putting an active interface into monitor mode will drop its connectivity. Prefer a dedicated NIC for capture.</div>
+    <div>Tip: Prefer <b>Create Monitor</b> to add a monitor vdev and avoid dropping connectivity or crashing the sniffer.</div>
     <div>Note: Changing hopping updates config and the hopper applies it live (no restart needed).</div>
   </div>
 

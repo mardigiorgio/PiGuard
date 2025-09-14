@@ -1,6 +1,7 @@
 from datetime import datetime
 from scapy.all import sniff, Dot11, Dot11Beacon, Dot11Deauth, Dot11Disas, Dot11Elt, RadioTap
-import threading, time, subprocess, random
+import threading, time, subprocess, random, statistics, math
+from collections import deque, defaultdict
 
 from wids.db import get_engine, init_db, ensure_schema, session, Event, Log
 from wids.ie.rsn import parse_rsn_info
@@ -76,7 +77,15 @@ def _extract_rssi(pkt):
     return None
 
 
-def run_sniffer(cfg: dict, config_path: str | None = None):
+def run_sniffer(
+    cfg: dict,
+    config_path: str | None = None,
+    *,
+    dwell_override_ms: int | None = None,
+    rssi_window: int = 20,
+    var_threshold: float = 150.0,
+    anomaly_log_file: str | None = None,
+):
     """Start a Scapy sniffer on cfg['capture']['iface'] and insert Event rows."""
     iface = cfg.get("capture", {}).get("iface")
     if not iface:
@@ -101,6 +110,29 @@ def run_sniffer(cfg: dict, config_path: str | None = None):
     log_stats_enabled = bool(sncfg.get("log_stats", False))
     stats_period = int(sncfg.get("stats_period_sec", 10) or 10)
 
+    # Target tracking: defended SSID and allowed BSSIDs
+    defense = (cfg.get("defense") or {}) if isinstance(cfg, dict) else {}
+    defended_ssid = (defense.get("ssid") or "").strip()
+    tracked_bssids = set()
+    try:
+        tracked_bssids = {str(x).lower() for x in (defense.get("allowed_bssids") or []) if isinstance(x, str)}
+    except Exception:
+        tracked_bssids = set()
+
+    # RSSI window and ESSID flip tracking structures
+    rssi_windows: dict[str, deque] = defaultdict(lambda: deque(maxlen=max(2, int(rssi_window))))
+    essids_seen: dict[str, set[str]] = defaultdict(set)
+    last_var_alert_ts: dict[str, float] = {}
+    last_essid_alert_ts: dict[str, float] = {}
+
+    # Optional anomaly file logger
+    anomaly_fh = None
+    if anomaly_log_file:
+        try:
+            anomaly_fh = open(anomaly_log_file, "a", encoding="utf-8")
+        except Exception:
+            anomaly_fh = None
+
     stats = {
         "seen": 0,
         "beacon": 0,
@@ -118,6 +150,18 @@ def run_sniffer(cfg: dict, config_path: str | None = None):
                 f"sniffer stats: seen={stats['seen']} beacon={stats['beacon']} deauth={stats['deauth']} disassoc={stats['disassoc']} buf={buf_len}",
             )
             stats["last_log"] = now
+
+    def _anomaly_log(msg: str):
+        try:
+            ts = datetime.utcnow().isoformat() + "Z"
+            line = f"[{ts}] {msg}\n"
+            # Console print for live feedback
+            print(line, end="")
+            if anomaly_fh:
+                anomaly_fh.write(line)
+                anomaly_fh.flush()
+        except Exception:
+            pass
 
     def handle(pkt):
         if not pkt.haslayer(Dot11):
@@ -182,6 +226,46 @@ def run_sniffer(cfg: dict, config_path: str | None = None):
                 db.commit()
             handle._buf.clear()  # type: ignore[attr-defined]
             handle._last_flush = now  # type: ignore[attr-defined]
+        # Live updates and anomaly detection for defended BSSID(s)
+        try:
+            b_lower = (bssid or "").lower() if bssid else ""
+            # If no explicit BSSID allowlist but defended SSID is set, learn dynamically
+            if not tracked_bssids and defended_ssid and ssid and ssid == defended_ssid and b_lower:
+                tracked_bssids.add(b_lower)
+
+            if b_lower and ((tracked_bssids and b_lower in tracked_bssids) or (defended_ssid and ssid == defended_ssid)):
+                # Maintain ESSIDs seen per BSSID
+                if ssid:
+                    ess_before = len(essids_seen[b_lower])
+                    essids_seen[b_lower].add(ssid)
+                    if len(essids_seen[b_lower]) > 1 and ess_before <= 1:
+                        # ESSID flip detected
+                        if time.time() - last_essid_alert_ts.get(b_lower, 0.0) > 5.0:
+                            _anomaly_log(f"ESSID flip detected for {b_lower}: {sorted(list(essids_seen[b_lower]))}")
+                            last_essid_alert_ts[b_lower] = time.time()
+
+                # Track RSSI window and compute variance; trigger on large variance
+                if rssi is not None:
+                    win = rssi_windows[b_lower]
+                    win.append(int(rssi))
+                    # Print live update for each matching beacon
+                    try:
+                        print(f"[sniffer] ch={chan} pwr={int(rssi)} ssid={ssid or ''} bssid={b_lower}")
+                    except Exception:
+                        pass
+                    if len(win) >= max(3, int(rssi_window) // 2):
+                        try:
+                            var = statistics.pvariance(win)  # population variance
+                        except Exception:
+                            # Fallback manual variance
+                            m = sum(win) / len(win)
+                            var = sum((x - m) ** 2 for x in win) / len(win)
+                        if var > float(var_threshold) and (time.time() - last_var_alert_ts.get(b_lower, 0.0) > 5.0):
+                            _anomaly_log(f"PWR flip anomaly detected for {b_lower}: variance={var:.1f} window={list(win)}")
+                            last_var_alert_ts[b_lower] = time.time()
+        except Exception:
+            pass
+
         _maybe_log()
 
     # Flush any remaining buffered events periodically
@@ -292,7 +376,11 @@ def run_sniffer(cfg: dict, config_path: str | None = None):
                 elif 1 <= ch <= 233 and '6' in bands:
                     plan.append(("6", ch))
 
-            dwell_ms = int(hop_cfg.get('dwell_ms', 40) or 40)
+            # Dwell override (CLI) wins over file/config
+            if dwell_override_ms and int(dwell_override_ms) > 0:
+                dwell_ms = int(dwell_override_ms)
+            else:
+                dwell_ms = int(hop_cfg.get('dwell_ms', 100) or 100)
             # Decide whether to adopt a new plan or keep the previous order
             if plan:
                 plan_channels = [p[1] for p in plan]
@@ -356,6 +444,33 @@ def run_sniffer(cfg: dict, config_path: str | None = None):
     hopper = threading.Thread(target=_hop_loop, name="chan-hopper", daemon=True)
     hopper.start()
 
+    def _iface_is_up(name: str) -> bool:
+        """Return True if the interface appears usable for sniffing.
+
+        Accepts ip -br states like UP or UNKNOWN (common for monitor ifaces).
+        Only treats explicit DOWN as unavailable.
+        """
+        try:
+            res = subprocess.run(["ip", "-br", "link", "show", name], capture_output=True, text=True)
+            if res.returncode == 0 and res.stdout:
+                out = f" {res.stdout.strip()} ".upper()
+                # Consider anything that's not explicitly DOWN as usable (UNKNOWN is OK in monitor mode)
+                if " DOWN " in out:
+                    return False
+                return True
+        except Exception:
+            pass
+        # Fallback: parse verbose ip link output
+        try:
+            res = subprocess.run(["ip", "link", "show", name], capture_output=True, text=True)
+            if res.returncode != 0:
+                return False
+            out = res.stdout
+            # Look for flags containing UP inside angle brackets, or absence of 'state DOWN'
+            return ("<" in out and ",UP," in out) or ("state DOWN" not in out)
+        except Exception:
+            return False
+
     try:
         # Filter at the capture layer to reduce Python work
         def _lfilter(p):
@@ -365,7 +480,28 @@ def run_sniffer(cfg: dict, config_path: str | None = None):
                 return p.haslayer(Dot11Beacon) or p.haslayer(Dot11Deauth) or p.haslayer(Dot11Disas)
             except Exception:
                 return False
-        sniff(iface=iface, store=False, prn=handle, lfilter=_lfilter)
+        # Resilient sniff loop: restart on link-down or transient errors
+        backoff = 0.5
+        while not stop_evt.is_set():
+            # Wait until interface is UP to avoid immediate socket failure
+            if not _iface_is_up(iface):
+                try:
+                    log_db("warn", f"sniffer: interface {iface} is DOWN; waiting...")
+                except Exception:
+                    pass
+                stop_evt.wait(1.0)
+                continue
+            try:
+                sniff(iface=iface, store=False, prn=handle, lfilter=_lfilter, timeout=5)
+                # sniff returns periodically due to timeout; loop continues
+                backoff = 0.5
+            except Exception as e:
+                try:
+                    log_db("warn", f"sniffer socket error: {e}; retrying")
+                except Exception:
+                    pass
+                stop_evt.wait(backoff)
+                backoff = min(backoff * 2, 5.0)
     finally:
         stop_evt.set()
         try:
@@ -374,3 +510,8 @@ def run_sniffer(cfg: dict, config_path: str | None = None):
             pass
         flush()
         log_db("info", "sniffer stopped")
+        try:
+            if anomaly_fh:
+                anomaly_fh.close()
+        except Exception:
+            pass

@@ -16,7 +16,7 @@ import yaml
 import subprocess
 import re
 
-app = FastAPI(title="WIDS API")
+app = FastAPI(title="PiGuard API")
 logger = setup_logging()
 
 cfg = {}
@@ -127,7 +127,7 @@ def list_alerts(limit: int = 100, db=Depends(get_db)):
 
 @app.post("/api/alerts/test", dependencies=[Depends(require_key)])
 def create_test_alert(db=Depends(get_db)):
-    a = Alert(ts=datetime.utcnow(), severity="info", kind="test", summary="hello from WIDS")
+    a = Alert(ts=datetime.utcnow(), severity="info", kind="test", summary="hello from PiGuard")
     db.add(a)
     db.commit()
     try:
@@ -135,6 +135,41 @@ def create_test_alert(db=Depends(get_db)):
     except Exception:
         pass
     return {"ok": True, "id": a.id}
+
+@app.post("/api/alerts/notify_test", dependencies=[Depends(require_key)])
+def notify_test():
+    # Send test notifications via configured channels (Discord/email)
+    try:
+        cfg_alerts = cfg.get("alerts", {}) or {}
+        msg = "[PiGuard] notify_test — this is a test notification"
+        sent = {"discord": False, "email": False}
+        if cfg_alerts.get("discord_webhook"):
+            try:
+                from wids.alerts import send_discord
+                send_discord(cfg_alerts["discord_webhook"], msg)
+                sent["discord"] = True
+            except Exception as e:
+                _api_log("error", f"notify_test discord failed: {e}")
+        em = cfg_alerts.get("email", {}) or {}
+        if em and em.get("to"):
+            try:
+                from wids.alerts import send_email
+                send_email(
+                    em.get("smtp_host", "smtp.gmail.com"),
+                    int(em.get("smtp_port", 587)),
+                    em.get("username", ""),
+                    em.get("password", ""),
+                    em.get("from", "PiGuard <alerts@example.com>"),
+                    em.get("to", []),
+                    subject="[PiGuard] notify_test",
+                    body=msg,
+                )
+                sent["email"] = True
+            except Exception as e:
+                _api_log("error", f"notify_test email failed: {e}")
+        return {"ok": True, "sent": sent}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"notify_test failed: {e}")
 
 @app.get("/api/events", dependencies=[Depends(require_key)])
 def list_events(
@@ -199,6 +234,11 @@ subscribers = set()
 async def stream(request: Request):
     queue = asyncio.Queue()
     subscribers.add(queue)
+    # Best-effort log connect
+    try:
+        _api_log("info", "sse subscriber connected")
+    except Exception:
+        pass
 
     async def gen():
         try:
@@ -216,6 +256,10 @@ async def stream(request: Request):
                     yield ": keep-alive\n\n"
         finally:
             subscribers.discard(queue)
+            try:
+                _api_log("info", "sse subscriber disconnected")
+            except Exception:
+                pass
 
     headers = {"Cache-Control": "no-cache", "Connection": "keep-alive"}
     return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
@@ -266,6 +310,10 @@ async def _alert_poller_loop():
                             _last_alert_id_for_sse = int(a.id)
                     except Exception:
                         pass
+                try:
+                    _api_log("info", f"sse broadcast alerts={len(rows)} last_id={_last_alert_id_for_sse}")
+                except Exception:
+                    pass
             try:
                 await asyncio.wait_for(_alert_poller_stop.wait(), timeout=0.8)
             except asyncio.TimeoutError:
@@ -440,17 +488,45 @@ async def set_monitor_mode(request: Request):
     # Optionally warn if iface has IP; allow override via force
     if _iface_has_ip(dev) and not force:
         raise HTTPException(status_code=409, detail=f"{dev} has an IP address. Pass force=true to proceed (may drop connectivity).")
-    cmds = [
+    # Perform operations with rollback: always try to leave iface up on failure
+    attempted: list[list[str]] = []
+    def _run_step(c: list[str]) -> tuple[int, str]:
+        rc, _out, err = _sudo(c)
+        attempted.append(c + [f"rc={rc}", (err or "").strip()])
+        return rc, (err or "").lower()
+
+    steps = [
         ["ip", "link", "set", dev, "down"],
         ["iw", "dev", dev, "set", "type", "monitor"],
     ]
     if ch:
-        cmds.append(["iw", "dev", dev, "set", "channel", str(ch)])
-    cmds.append(["ip", "link", "set", dev, "up"])
-    for c in cmds:
-        rc, _, err = _sudo(c)
+        steps.append(["iw", "dev", dev, "set", "channel", str(ch)])
+    steps.append(["ip", "link", "set", dev, "up"])
+
+    failed_detail = None
+    for c in steps:
+        rc, err_l = _run_step(c)
         if rc != 0:
-            raise HTTPException(status_code=500, detail=f"command failed: {' '.join(c)} ({err or rc})")
+            # Best-effort bring iface up before returning error
+            try:
+                _sudo(["ip", "link", "set", dev, "up"])
+            except Exception:
+                pass
+            msg = " ".join(c)
+            # Provide actionable guidance when driver does not support mode switch
+            if any(s in err_l for s in [
+                "operation not supported",
+                "resource busy",
+                "device or resource busy",
+                "invalid argument",
+            ]):
+                failed_detail = (
+                    f"command failed: {msg} ({attempted[-1][-1] or 'error'}) — try creating a separate monitor interface via /api/iface/monitor_clone"
+                )
+                raise HTTPException(status_code=409, detail=failed_detail)
+            failed_detail = f"command failed: {msg} ({attempted[-1][-1] or rc})"
+            raise HTTPException(status_code=500, detail=failed_detail)
+
     return {"ok": True, "iface": _iface_info(dev)}
 
 @app.post("/api/iface/monitor_clone", dependencies=[Depends(require_key)])

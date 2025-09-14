@@ -15,10 +15,22 @@ thresholds:
     per_src_limit: 30
     global_limit: 80
     cooldown_sec: 60
+  rogue:
+    pwr_window: 20
+    pwr_var_threshold: 150
+    pwr_cooldown_sec: 10
 
 # Which Wi-Fi interface to sniff in monitor mode
 capture:
   iface: "wlan0mon"
+  hop:
+    enabled: true
+    bands: ["2.4","5"]
+    channels_24: [1,6,11]
+    channels_5: [36,40,44,48,149,153,157,161]
+    channels_6: []
+    dwell_ms: 100
+    mode: all
 
 # Select exactly one SSID to defend; others are ignored by detectors.
 defense:

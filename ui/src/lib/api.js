@@ -6,8 +6,17 @@ async function request(path, opts = {}) {
   headers['X-Api-Key'] = API_KEY
   if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
   const res = await fetch(`${API_BASE}${path}`, { ...opts, headers })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return await res.json()
+  let data = null
+  try {
+    data = await res.json()
+  } catch {
+    data = null
+  }
+  if (!res.ok) {
+    const detail = data && (data.detail || data.error || data.message)
+    throw new Error(detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`)
+  }
+  return data
 }
 
 export async function getOverview() {

@@ -2,4 +2,27 @@
 __pycache__/
 *.pyc
 data/*.sqlite
+*/data/*.sqlite
 configs/wids.yaml
+
+# Node / UI
+ui/node_modules/
+ui/dist/
+ui/.vite/
+ui/.svelte-kit/
+npm-debug.log*
+yarn-error.log*
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+
+# Python tooling
+.pytest_cache/
+.coverage
+coverage.xml
+
+# Logs and artifacts
+*.log
+anomalies.log
