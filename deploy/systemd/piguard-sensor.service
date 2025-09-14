@@ -1,0 +1,22 @@
+[Unit]
+Description=PiGuard Sensor/Detectors Loop
+After=network-online.target piguard-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=piguard
+Group=piguard
+WorkingDirectory=/opt/piguard
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/piguard/src
+ExecStart=/opt/piguard/.venv/bin/python -m wids sensor --config /etc/piguard/wids.yaml
+Restart=on-failure
+RestartSec=2
+AmbientCapabilities=
+CapabilityBoundingSet=
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+
