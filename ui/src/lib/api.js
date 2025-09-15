@@ -113,3 +113,11 @@ export async function postAdminRestart(serviceOrServices) {
     : { service: String(serviceOrServices) }
   return request('/admin/restart', { method: 'POST', body: JSON.stringify(payload) })
 }
+
+// Settings: deauth thresholds
+export async function getDeauthSettings() {
+  return request('/settings/deauth')
+}
+export async function postDeauthSettings(payload) {
+  return request('/settings/deauth', { method: 'POST', body: JSON.stringify(payload) })
+}

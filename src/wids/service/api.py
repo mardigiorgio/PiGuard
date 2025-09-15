@@ -276,6 +276,73 @@ async def admin_restart(request: Request):
         raise HTTPException(status_code=500, detail={"results": results})
     return {"ok": True, "results": results}
 
+# === Settings: deauth thresholds ===
+def _ensure_default_deauth(thr: dict | None) -> dict:
+    thr = thr or {}
+    return {
+        "window_sec": int((thr.get("window_sec") or 10)),
+        "per_src_limit": int((thr.get("per_src_limit") or 30)),
+        "global_limit": int((thr.get("global_limit") or 80)),
+        "cooldown_sec": int((thr.get("cooldown_sec") or 60)),
+    }
+
+
+@app.get("/api/settings/deauth", dependencies=[Depends(require_key)])
+def get_deauth_settings():
+    thr = (((cfg.get("thresholds") or {}).get("deauth")) or {})
+    return _ensure_default_deauth(thr)
+
+
+@app.post("/api/settings/deauth", dependencies=[Depends(require_key)])
+async def set_deauth_settings(request: Request):
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+    # Validate and coerce
+    allowed = {"window_sec", "per_src_limit", "global_limit", "cooldown_sec"}
+    for k in list(body.keys()):
+        if k not in allowed:
+            body.pop(k)
+    try:
+        window_sec = max(1, int(body.get("window_sec", 10)))
+        per_src = max(1, int(body.get("per_src_limit", 30)))
+        glob = max(1, int(body.get("global_limit", 80)))
+        cooldown = max(1, int(body.get("cooldown_sec", 60)))
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid numeric values")
+
+    # Update in-memory cfg
+    cfg.setdefault("thresholds", {}).setdefault("deauth", {})
+    cfg["thresholds"]["deauth"].update({
+        "window_sec": window_sec,
+        "per_src_limit": per_src,
+        "global_limit": glob,
+        "cooldown_sec": cooldown,
+    })
+
+    # Persist to YAML
+    if not cfg_path:
+        raise HTTPException(status_code=500, detail="config path unknown")
+    try:
+        p = pathlib.Path(cfg_path)
+        doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        doc.setdefault("thresholds", {}).setdefault("deauth", {})
+        doc["thresholds"]["deauth"].update({
+            "window_sec": window_sec,
+            "per_src_limit": per_src,
+            "global_limit": glob,
+            "cooldown_sec": cooldown,
+        })
+        p.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"failed to persist: {e}")
+
+    try:
+        _api_log("info", f"deauth settings updated window={window_sec} per_src={per_src} global={glob} cooldown={cooldown}")
+    except Exception:
+        pass
+    return {"ok": True, "deauth": _ensure_default_deauth(cfg.get("thresholds", {}).get("deauth"))}
+
 # === SSE: stream new alerts in near real-time ===
 subscribers = set()
 

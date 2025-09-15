@@ -5,6 +5,7 @@
   import Defense from './routes/Defense.svelte'
   import Device from './routes/Device.svelte'
   import Logs from './routes/Logs.svelte'
+  import Settings from './routes/Settings.svelte'
   import Notifications from './lib/Notifications.svelte'
 
   let tab = 'overview'
@@ -13,6 +14,7 @@
     { id: 'alerts', label: 'Alerts', comp: Alerts },
     { id: 'defense', label: 'Defense', comp: Defense },
     { id: 'device', label: 'Device', comp: Device },
+    { id: 'settings', label: 'Settings', comp: Settings },
     { id: 'logs', label: 'Logs', comp: Logs },
   ]
 </script>
@@ -35,6 +37,8 @@
       <Defense />
     {:else if tab === 'device'}
       <Device />
+    {:else if tab === 'settings'}
+      <Settings />
     {:else}
       <Logs />
     {/if}
