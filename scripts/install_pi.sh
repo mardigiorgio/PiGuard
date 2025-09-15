@@ -102,15 +102,32 @@ build_ui() {
     echo "Skipping UI build (SKIP_UI=1)"
     return
   fi
+
+  # Try root PATH first
   if command -v npm >/dev/null 2>&1; then
-    echo "Building UI..."
+    echo "Building UI with root npm..."
     pushd "$APP_DIR/ui" >/dev/null
     npm ci
     npm run build
     popd >/dev/null
-  else
-    echo "npm not found; skipping UI build. The API will still run without static UI."
+    return
   fi
+
+  # If root can't find npm, try the invoking user (helps with nvm installs)
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    # Check npm in the user's login shell so nvm is loaded
+    if su -l "$SUDO_USER" -c "bash -lc 'command -v npm'" >/dev/null 2>&1; then
+      echo "Building UI with $SUDO_USER's npm (nvm) ..."
+      # Ensure the user can write to the UI directory during build
+      chown -R "$SUDO_USER":"$SUDO_USER" "$APP_DIR/ui" || true
+      su -l "$SUDO_USER" -c "bash -lc 'cd \"$APP_DIR/ui\" && npm ci && npm run build'"
+      # Restore ownership to root (optional; keeps deployment consistent)
+      chown -R root:root "$APP_DIR/ui" || true
+      return
+    fi
+  fi
+
+  echo "npm not found; skipping UI build. The API will still run without static UI."
 }
 
 install_units() {

@@ -627,6 +627,15 @@ def main(config_path: str):
     dist = pathlib.Path(__file__).resolve().parents[3] / "ui" / "dist"
     if dist.exists():
         app.mount("/", StaticFiles(directory=str(dist), html=True), name="ui")
+        try:
+            _api_log("info", f"ui mounted from {dist}")
+        except Exception:
+            pass
+    else:
+        try:
+            _api_log("warn", f"ui not found at {dist}; serving API only")
+        except Exception:
+            pass
 
     uvicorn.run(app, host=cfg["api"]["bind_host"], port=cfg["api"]["bind_port"])
 

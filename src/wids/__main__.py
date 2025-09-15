@@ -46,9 +46,9 @@ def sniffer(config: str, dwell: float, rssi_window: int, var_threshold: float, a
     from wids.common import load_config
     from wids.capture.live import run_sniffer
 
+    # Do not hard-exit in services; warn and continue. The capture code handles permission errors gracefully
     if os.geteuid() != 0:
-        click.secho("[sniffer] must run as root (sudo)", fg="red")
-        sys.exit(1)
+        click.secho("[sniffer] warning: not running as root; capture may fail. In production, run service as root.", fg="yellow")
 
     cfg = load_config(config)
     iface = (cfg.get("capture", {}) or {}).get("iface")

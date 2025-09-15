@@ -1,5 +1,31 @@
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080/api'
-const API_KEY = import.meta.env.VITE_API_KEY || 'change-me'
+// Compute API base at runtime to avoid embedding localhost in prod builds.
+// Fallback to window.location.origin + '/api' when VITE_API_BASE is not set.
+const RUNTIME_BASE = (typeof window !== 'undefined' && window.location && window.location.origin)
+  ? `${window.location.origin.replace(/\/$/, '')}/api`
+  : 'http://localhost:8080/api'
+const API_BASE = (import.meta.env && import.meta.env.VITE_API_BASE) || RUNTIME_BASE
+
+// Allow runtime API key override via localStorage or URL param 'apikey'.
+function _readApiKey() {
+  try {
+    const sp = (typeof window !== 'undefined') ? new URLSearchParams(window.location.search) : null
+    const fromQs = sp ? (sp.get('apikey') || sp.get('api_key')) : null
+    if (fromQs) {
+      try { localStorage.setItem('apiKey', fromQs) } catch {}
+      return fromQs
+    }
+    const fromStore = (typeof window !== 'undefined') ? localStorage.getItem('apiKey') : null
+    return fromStore || (import.meta.env && import.meta.env.VITE_API_KEY) || 'change-me'
+  } catch {
+    return (import.meta.env && import.meta.env.VITE_API_KEY) || 'change-me'
+  }
+}
+let API_KEY = _readApiKey()
+
+export function setApiKey(key) {
+  API_KEY = String(key || '')
+  try { localStorage.setItem('apiKey', API_KEY) } catch {}
+}
 
 async function request(path, opts = {}) {
   const headers = opts.headers || {}
