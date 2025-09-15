@@ -195,6 +195,8 @@ Next steps:
 UI:
   If you built the UI, browse to http://<pi-ip>:8080/ and set X-Api-Key in the UI dev env if needed.
 EOF
+}
+
 choose_prefix() {
   # If /opt is mounted noexec, fall back to /srv
   local opts
@@ -322,7 +324,6 @@ PY
   fi
 
   echo "Interactive configuration complete."
-}
 }
 
 main() {
