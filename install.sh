@@ -64,6 +64,9 @@ if [[ ! -x "scripts/install_pi.sh" ]]; then
 fi
 
 # Always use local, hardened installer; pass SRC_DIR pointing to cloned repo or current dir
+# Backward-compat: some older installers call choose_prefix; provide a no-op fallback and export it
+choose_prefix() { :; }
+export -f choose_prefix || true
 if [[ $SKIP_UI -eq 1 ]]; then
   log "Running installer with SKIP_UI=1 from SRC_DIR=$WORKDIR"
   SRC_DIR="$WORKDIR" SKIP_UI=1 bash "scripts/install_pi.sh" || die "installer failed"
