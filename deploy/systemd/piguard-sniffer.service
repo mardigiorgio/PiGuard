@@ -5,18 +5,16 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=piguard
-Group=piguard
+User=root
+Group=root
 WorkingDirectory=/opt/piguard
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONPATH=/opt/piguard/src
 ExecStart=/opt/piguard/.venv/bin/python -m wids sniffer --config /etc/piguard/wids.yaml
 Restart=always
 RestartSec=1
-# Grant network capabilities to this service instead of setting file caps
-AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
-CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
-NoNewPrivileges=true
+# Running as root simplifies raw socket access
+NoNewPrivileges=false
 
 [Install]
 WantedBy=multi-user.target

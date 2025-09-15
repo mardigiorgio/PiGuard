@@ -38,7 +38,7 @@ capture:
     channels_24: [1,6,11]
     channels_5: [36,40,44,48,149,153,157,161]
     channels_6: []
-    dwell_ms: 100
+    dwell_ms: 50
     mode: all
 
 # Select exactly one SSID to defend; others are ignored by detectors.
