@@ -8,9 +8,6 @@ PiGuard is a lightweight Wi‑Fi intrusion detection system (WIDS) designed for 
 - UI: Svelte + Vite
 - Installer: One‑command setup with interactive config and systemd services
 
-Repository: https://github.com/mardigiorgio/PiGuard
-
-
 ## Features
 
 - Real‑time deauth detection with tunable thresholds
