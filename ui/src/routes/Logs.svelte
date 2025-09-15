@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { getLogs, postAdminClear } from '../lib/api'
+  import { getLogs, postAdminClear, postAdminRestart } from '../lib/api'
 
   let items = []
   let sinceId = null
@@ -57,6 +57,20 @@
   <div class="mt-2 p-3 border rounded bg-red-50">
     <div class="text-sm font-semibold text-red-700 mb-1">Danger zone</div>
     <div class="flex flex-wrap gap-2 items-center">
+      <button class="px-2 py-1 rounded border text-sm" on:click={async () => {
+        if (!confirm('Restart sniffer service now?')) return
+        try {
+          await postAdminRestart('sniffer')
+          msg = 'Sniffer restart requested.'; err=''
+        } catch (e) { err = e.message; msg='' }
+      }}>Restart Sniffer</button>
+      <button class="px-2 py-1 rounded border text-sm" on:click={async () => {
+        if (!confirm('Restart sensor service now?')) return
+        try {
+          await postAdminRestart('sensor')
+          msg = 'Sensor restart requested.'; err=''
+        } catch (e) { err = e.message; msg='' }
+      }}>Restart Sensor</button>
       <button class="px-2 py-1 rounded bg-red-600 text-white text-sm" on:click={async () => {
         if (!confirm('Clear ALL events and alerts?')) return
         try {

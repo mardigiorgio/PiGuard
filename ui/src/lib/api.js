@@ -105,3 +105,11 @@ export async function getLogs({ since_id = null, limit = 200, source = '' } = {}
 export async function postAdminClear(tables = ['events','alerts']) {
   return request('/admin/clear', { method: 'POST', body: JSON.stringify({ tables }) })
 }
+
+// Admin: restart services (sensor/sniffer)
+export async function postAdminRestart(serviceOrServices) {
+  const payload = Array.isArray(serviceOrServices)
+    ? { services: serviceOrServices }
+    : { service: String(serviceOrServices) }
+  return request('/admin/restart', { method: 'POST', body: JSON.stringify(payload) })
+}

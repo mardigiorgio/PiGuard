@@ -25,8 +25,27 @@ pkg_install() {
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3 python3-venv python3-pip python3-setuptools python3-dev \
-    git rsync iproute2 iw libcap2-bin \
+    git rsync iproute2 iw libcap2-bin curl ca-certificates gnupg \
     pkg-config libpcap0.8
+}
+
+# Ensure a usable Node.js/npm is available (tries apt first, then NodeSource)
+ensure_node() {
+  if command -v npm >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Installing Node.js/npm via apt..."
+  if DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm >/dev/null 2>&1; then
+    if command -v npm >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+  echo "Apt nodejs/npm not available or not sufficient; using NodeSource (Node 20.x)"
+  # Install NodeSource repo for Node.js 20.x
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs || true
+  fi
 }
 
 create_user() {
@@ -102,6 +121,9 @@ build_ui() {
     echo "Skipping UI build (SKIP_UI=1)"
     return
   fi
+
+  # Try to ensure Node/npm exists before building
+  ensure_node || true
 
   # Try root PATH first
   if command -v npm >/dev/null 2>&1; then
@@ -182,6 +204,125 @@ choose_prefix() {
     APP_DIR=/srv/piguard
   fi
 }
+
+interactive_config() {
+  # Only run if interactive terminal, unless INTERACTIVE=1 explicitly.
+  if [[ "${INTERACTIVE:-}" != "1" ]]; then
+    if [[ ! -t 0 ]]; then
+      return
+    fi
+  fi
+
+  echo
+  echo "=== Interactive configuration ==="
+  echo "You can set capture.iface, API key, and defended SSID now."
+
+  # Helper to read current YAML values
+  local cur_iface cur_apikey cur_ssid
+  cur_iface=""
+  cur_apikey=""
+  cur_ssid=""
+  if [[ -x "$VENV/bin/python" ]]; then
+    cur_iface="$($VENV/bin/python - <<'PY'
+import yaml, sys
+doc=yaml.safe_load(open(sys.argv[1],'r').read()) or {}
+print(((doc.get('capture') or {}).get('iface') or ''))
+PY
+"$CFG_DIR/wids.yaml")"
+    cur_apikey="$($VENV/bin/python - <<'PY'
+import yaml, sys
+doc=yaml.safe_load(open(sys.argv[1],'r').read()) or {}
+print(((doc.get('api') or {}).get('api_key') or ''))
+PY
+"$CFG_DIR/wids.yaml")"
+    cur_ssid="$($VENV/bin/python - <<'PY'
+import yaml, sys
+doc=yaml.safe_load(open(sys.argv[1],'r').read()) or {}
+print(((doc.get('defense') or {}).get('ssid') or ''))
+PY
+"$CFG_DIR/wids.yaml")"
+  fi
+
+  # List wifi interfaces
+  local ifs
+  ifs=( $(iw dev 2>/dev/null | awk '/Interface/{print $2}') ) || true
+  echo
+  if [[ ${#ifs[@]} -gt 0 ]]; then
+    echo "Detected Wi‑Fi interfaces:"
+    local i=0
+    for n in "${ifs[@]}"; do
+      echo "  [$i] $n"
+      i=$((i+1))
+    done
+  else
+    echo "No interfaces found via 'iw dev'. You can set capture.iface manually."
+  fi
+
+  local choice new_iface
+  echo
+  read -r -p "Select interface index for capture.iface [enter to keep '${cur_iface:-unset}']: " choice || true
+  if [[ -n "$choice" && "$choice" =~ ^[0-9]+$ && $choice -ge 0 && $choice -lt ${#ifs[@]} ]]; then
+    new_iface="${ifs[$choice]}"
+  else
+    new_iface="$cur_iface"
+  fi
+
+  # Optional: create monitor clone
+  if [[ -n "$new_iface" ]]; then
+    read -r -p "Create monitor interface from '$new_iface' now (y/N)? " yn || true
+    if [[ "$yn" =~ ^[Yy]$ ]]; then
+      # Propose name
+      local mon
+      mon="${new_iface}mon"
+      if iw dev 2>/dev/null | awk '/Interface/{print $2}' | grep -qx "$mon"; then
+        mon="${new_iface}mon0"
+      fi
+      echo "Adding monitor vdev: $mon"
+      iw dev "$new_iface" interface add "$mon" type monitor 2>/dev/null || true
+      ip link set "$mon" up 2>/dev/null || true
+      if iw dev 2>/dev/null | awk '/Interface/{print $2}' | grep -qx "$mon"; then
+        new_iface="$mon"
+        echo "Monitor interface ready: $new_iface"
+      else
+        echo "Failed to create monitor interface; keeping iface=$new_iface"
+      fi
+    fi
+  fi
+
+  # API key
+  local new_key
+  read -r -p "Set API key [enter to keep '${cur_apikey:-change-me}']: " new_key || true
+
+  # Defended SSID
+  local new_ssid
+  read -r -p "Defended SSID (empty = not armed) [enter to keep '${cur_ssid}']: " new_ssid || true
+
+  # Persist via Python (PyYAML in venv)
+  if [[ -x "$VENV/bin/python" ]]; then
+    "$VENV/bin/python" - <<'PY'
+import sys, yaml
+cfg_path=sys.argv[1]
+iface=sys.argv[2]
+api_key=sys.argv[3]
+ssid=sys.argv[4]
+doc=yaml.safe_load(open(cfg_path,'r').read()) or {}
+doc.setdefault('capture', {})
+if iface:
+    doc['capture']['iface']=iface
+doc.setdefault('api', {})
+if api_key:
+    doc['api']['api_key']=api_key
+doc.setdefault('defense', {})
+if ssid is not None and ssid != '':
+    doc['defense']['ssid']=ssid
+open(cfg_path,'w').write(yaml.safe_dump(doc, sort_keys=False))
+print('Saved config to', cfg_path)
+PY
+    "$CFG_DIR/wids.yaml" "$new_iface" "$new_key" "$new_ssid" || true
+  fi
+
+  echo "Interactive configuration complete."
+}
 }
 
 main() {
@@ -194,6 +335,7 @@ main() {
   setup_config
   setup_venv
   set_caps
+  interactive_config
   build_ui
   install_units
   sudoers_snippet

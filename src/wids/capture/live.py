@@ -1,5 +1,5 @@
 from datetime import datetime
-from scapy.all import sniff, Dot11, Dot11Beacon, Dot11Deauth, Dot11Disas, Dot11Elt, RadioTap
+from scapy.all import sniff, Dot11, Dot11Beacon, Dot11Deauth, Dot11Disas, Dot11Elt, RadioTap, conf
 import threading, time, subprocess, random, statistics, math
 from collections import deque, defaultdict
 
@@ -109,6 +109,7 @@ def run_sniffer(
     parse_rsn = bool(sncfg.get("parse_rsn", False))
     log_stats_enabled = bool(sncfg.get("log_stats", False))
     stats_period = int(sncfg.get("stats_period_sec", 10) or 10)
+    debug_print = bool(sncfg.get("debug_print", False))
 
     # Target tracking: defended SSID and allowed BSSIDs
     defense = (cfg.get("defense") or {}) if isinstance(cfg, dict) else {}
@@ -218,11 +219,16 @@ def run_sniffer(
             handle._last_flush = 0.0  # type: ignore[attr-defined]
         handle._buf.append(e)  # type: ignore[attr-defined]
         now = time.time()
-        should_flush = (len(handle._buf) >= 200) or (now - getattr(handle, "_last_flush", 0.0) >= 1.0)  # type: ignore[attr-defined]
+        should_flush = (len(handle._buf) >= 400) or (now - getattr(handle, "_last_flush", 0.0) >= 0.8)  # type: ignore[attr-defined]
         if should_flush:
             with session(engine) as db:
-                for x in handle._buf:  # type: ignore[attr-defined]
-                    db.add(x)
+                try:
+                    # Use bulk insert to reduce ORM overhead
+                    db.bulk_save_objects(handle._buf)  # type: ignore[attr-defined]
+                except Exception:
+                    # Fallback to add loop on any edge case
+                    for x in handle._buf:  # type: ignore[attr-defined]
+                        db.add(x)
                 db.commit()
             handle._buf.clear()  # type: ignore[attr-defined]
             handle._last_flush = now  # type: ignore[attr-defined]
@@ -248,11 +254,12 @@ def run_sniffer(
                 if rssi is not None:
                     win = rssi_windows[b_lower]
                     win.append(int(rssi))
-                    # Print live update for each matching beacon
-                    try:
-                        print(f"[sniffer] ch={chan} pwr={int(rssi)} ssid={ssid or ''} bssid={b_lower}")
-                    except Exception:
-                        pass
+                    # Optional live debug printing (disabled by default for performance)
+                    if debug_print:
+                        try:
+                            print(f"[sniffer] ch={chan} pwr={int(rssi)} ssid={ssid or ''} bssid={b_lower}")
+                        except Exception:
+                            pass
                     if len(win) >= max(3, int(rssi_window) // 2):
                         try:
                             var = statistics.pvariance(win)  # population variance
@@ -272,8 +279,11 @@ def run_sniffer(
     def flush():
         if hasattr(handle, "_buf") and handle._buf:  # type: ignore[attr-defined]
             with session(engine) as db:
-                for x in handle._buf:  # type: ignore[attr-defined]
-                    db.add(x)
+                try:
+                    db.bulk_save_objects(handle._buf)  # type: ignore[attr-defined]
+                except Exception:
+                    for x in handle._buf:  # type: ignore[attr-defined]
+                        db.add(x)
                 db.commit()
             handle._buf.clear()  # type: ignore[attr-defined]
 
@@ -482,6 +492,13 @@ def run_sniffer(
                 return False
         # Resilient sniff loop: restart on link-down or transient errors
         backoff = 0.5
+        # Prefer libpcap backend for BPF filtering where available
+        try:
+            conf.use_pcap = True
+        except Exception:
+            pass
+        # BPF to restrict to beacon/deauth/disassoc when supported
+        bpf = "wlan type mgt and (wlan subtype beacon or wlan subtype deauth or wlan subtype disassoc)"
         while not stop_evt.is_set():
             # Wait until interface is UP to avoid immediate socket failure
             if not _iface_is_up(iface):
@@ -492,7 +509,14 @@ def run_sniffer(
                 stop_evt.wait(1.0)
                 continue
             try:
-                sniff(iface=iface, store=False, prn=handle, lfilter=_lfilter, timeout=5)
+                sniff(
+                    iface=iface,
+                    store=False,
+                    prn=handle,
+                    lfilter=_lfilter,
+                    filter=bpf,
+                    timeout=5,
+                )
                 # sniff returns periodically due to timeout; loop continues
                 backoff = 0.5
             except Exception as e:

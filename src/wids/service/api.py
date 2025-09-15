@@ -227,6 +227,55 @@ async def admin_clear(request: Request):
         raise HTTPException(status_code=500, detail=f"clear failed: {e}")
     return {"ok": True, "cleared": tables}
 
+# === Admin: restart services (sensor/sniffer) ===
+def _restart_unit_safe(name: str) -> tuple[int, str, str]:
+    allowed = {
+        "sniffer": "piguard-sniffer",
+        "sensor": "piguard-sensor",
+    }
+    unit = allowed.get(name)
+    if not unit:
+        return 1, "", f"unsupported service: {name}"
+    try:
+        # API normally runs as root. Prefer direct systemctl; fallback to sudo -n when not.
+        if os.geteuid() == 0:
+            p = subprocess.run(["systemctl", "restart", unit], capture_output=True, text=True)
+        else:
+            p = subprocess.run(["sudo", "-n", "systemctl", "restart", unit], capture_output=True, text=True)
+        return p.returncode, p.stdout or "", p.stderr or ""
+    except Exception as e:
+        return 1, "", str(e)
+
+
+@app.post("/api/admin/restart", dependencies=[Depends(require_key)])
+async def admin_restart(request: Request):
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+    services = body.get("services")
+    service = body.get("service")
+    if service and not services:
+        services = [service]
+    if not services or not isinstance(services, list):
+        raise HTTPException(status_code=400, detail="service(s) required: ['sniffer'|'sensor']")
+
+    results = {}
+    for s in services:
+        name = str(s).strip().lower()
+        rc, out, err = _restart_unit_safe(name)
+        ok = (rc == 0)
+        results[name] = {"ok": ok, "stdout": out.strip(), "stderr": err.strip(), "rc": rc}
+        try:
+            level = "info" if ok else "error"
+            _api_log(level, f"admin restart {name}: rc={rc} {('ok' if ok else err or '').strip()}")
+        except Exception:
+            pass
+
+    # 4xx only if all failed; otherwise return aggregated status
+    if all(not v.get("ok") for v in results.values()):
+        raise HTTPException(status_code=500, detail={"results": results})
+    return {"ok": True, "results": results}
+
 # === SSE: stream new alerts in near real-time ===
 subscribers = set()
 

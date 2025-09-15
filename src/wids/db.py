@@ -71,8 +71,17 @@ def get_engine(db_path: str):
     return eng
 
 def init_db(engine):
-    """Create tables if they do not exist."""
+    """Create tables if they do not exist and tune SQLite pragmas for speed."""
     SQLModel.metadata.create_all(engine)
+    # Speed up writes for high-rate ingest (safe tradeoffs for local DB)
+    try:
+        with Session(engine) as s:
+            s.exec(text("PRAGMA journal_mode=WAL;"))
+            s.exec(text("PRAGMA synchronous=NORMAL;"))
+            s.exec(text("PRAGMA temp_store=MEMORY;"))
+            s.commit()
+    except Exception:
+        pass
 
 def ensure_schema(engine):
     """Lightweight migration to add new columns if missing."""

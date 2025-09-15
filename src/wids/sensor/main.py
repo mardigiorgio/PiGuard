@@ -10,19 +10,33 @@ from collections import deque, defaultdict
 import statistics
 
 def detect_deauths(db, defense: dict, window_sec=10, per_src_limit=30, global_limit=80):
-    "Count deauths globally (no SSID scoping) and return totals and per-source counts."
+    "Count deauths via SQL GROUP BY to reduce Python overhead."
     since = datetime.utcnow() - timedelta(seconds=window_sec)
-    rows = db.exec(
-        select(Event).where(Event.ts >= since).where(Event.type == "mgmt.deauth")
-    ).all()
-    counts: dict[str, int] = {}
-    total = 0
-    for e in rows:
-        src = (e.src or "unknown").lower()
-        counts[src] = counts.get(src, 0) + 1
-        total += 1
+    try:
+        # Raw SQL for performance: count per src
+        rows = db.exec(
+            text(
+                """
+                SELECT COALESCE(LOWER(CAST(src AS TEXT)), 'unknown') AS s, COUNT(1) AS c
+                FROM event
+                WHERE ts >= :since AND type = 'mgmt.deauth'
+                GROUP BY s
+                """
+            ),
+            {"since": since},
+        ).all()
+        counts = {str(r[0]): int(r[1]) for r in rows}
+        total = sum(counts.values())
+    except Exception:
+        # Fallback to ORM
+        rows = db.exec(select(Event).where(Event.ts >= since).where(Event.type == "mgmt.deauth")).all()
+        counts: dict[str, int] = {}
+        total = 0
+        for e in rows:
+            src = (e.src or "unknown").lower()
+            counts[src] = counts.get(src, 0) + 1
+            total += 1
     offenders = [s for s, c in counts.items() if c >= per_src_limit]
-    # Trigger only on global threshold
     triggered = total >= int(global_limit or 0)
     return triggered, total, offenders, counts
 
@@ -211,11 +225,10 @@ def loop(cfg, config_path: str | None = None):
 
             # --- Rogue AP check (over recent beacons for defended SSID) ---
             since = datetime.utcnow() - timedelta(seconds=w)
-            beacons = db.exec(
-                select(Event)
-                .where(Event.ts >= since)
-                .where(Event.type == "mgmt.beacon")
-            ).all()
+            q = select(Event).where(Event.ts >= since).where(Event.type == "mgmt.beacon")
+            if armed and def_ssid:
+                q = q.where(Event.ssid == def_ssid)
+            beacons = db.exec(q).all()
             for e in beacons:
                 if not armed:
                     break
