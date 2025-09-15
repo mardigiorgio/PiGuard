@@ -225,24 +225,24 @@ interactive_config() {
   cur_apikey=""
   cur_ssid=""
   if [[ -x "$VENV/bin/python" ]]; then
-    cur_iface="$($VENV/bin/python - <<'PY'
+    cur_iface="$($VENV/bin/python - "$CFG_DIR/wids.yaml" <<'PY'
 import yaml, sys
 doc=yaml.safe_load(open(sys.argv[1],'r').read()) or {}
 print(((doc.get('capture') or {}).get('iface') or ''))
 PY
-"$CFG_DIR/wids.yaml")"
-    cur_apikey="$($VENV/bin/python - <<'PY'
+)"
+    cur_apikey="$($VENV/bin/python - "$CFG_DIR/wids.yaml" <<'PY'
 import yaml, sys
 doc=yaml.safe_load(open(sys.argv[1],'r').read()) or {}
 print(((doc.get('api') or {}).get('api_key') or ''))
 PY
-"$CFG_DIR/wids.yaml")"
-    cur_ssid="$($VENV/bin/python - <<'PY'
+)"
+    cur_ssid="$($VENV/bin/python - "$CFG_DIR/wids.yaml" <<'PY'
 import yaml, sys
 doc=yaml.safe_load(open(sys.argv[1],'r').read()) or {}
 print(((doc.get('defense') or {}).get('ssid') or ''))
 PY
-"$CFG_DIR/wids.yaml")"
+)"
   fi
 
   # List wifi interfaces
@@ -301,7 +301,7 @@ PY
 
   # Persist via Python (PyYAML in venv)
   if [[ -x "$VENV/bin/python" ]]; then
-    "$VENV/bin/python" - <<'PY'
+    "$VENV/bin/python" - "$CFG_DIR/wids.yaml" "$new_iface" "$new_key" "$new_ssid" <<'PY'
 import sys, yaml
 cfg_path=sys.argv[1]
 iface=sys.argv[2]
@@ -320,7 +320,6 @@ if ssid is not None and ssid != '':
 open(cfg_path,'w').write(yaml.safe_dump(doc, sort_keys=False))
 print('Saved config to', cfg_path)
 PY
-    "$CFG_DIR/wids.yaml" "$new_iface" "$new_key" "$new_ssid" || true
   fi
 
   echo "Interactive configuration complete."
