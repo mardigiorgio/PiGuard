@@ -37,7 +37,9 @@ create_user() {
 
 sync_code() {
   mkdir -p "$APP_DIR"
-  rsync -a --delete --exclude .git --exclude ui/node_modules --exclude ui/dist ./ "$APP_DIR/"
+  local src
+  src="${SRC_DIR:-.}"
+  rsync -a --delete --exclude .git --exclude ui/node_modules --exclude ui/dist "$src/" "$APP_DIR/"
 }
 
 setup_dirs() {

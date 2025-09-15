@@ -59,17 +59,17 @@ if [[ -n "$REPO" ]]; then
   WORKDIR="$TMPDIR"
 fi
 
-if [[ ! -x "$WORKDIR/scripts/install_pi.sh" ]]; then
-  die "installer not found: $WORKDIR/scripts/install_pi.sh (pass --repo <url> or run from project root)"
+if [[ ! -x "scripts/install_pi.sh" ]]; then
+  die "local installer not found: scripts/install_pi.sh (run from a project checkout)"
 fi
 
-# Pass SKIP_UI to the real installer
+# Always use local, hardened installer; pass SRC_DIR pointing to cloned repo or current dir
 if [[ $SKIP_UI -eq 1 ]]; then
-  log "Running installer with SKIP_UI=1"
-  SKIP_UI=1 bash "$WORKDIR/scripts/install_pi.sh" || die "installer failed"
+  log "Running installer with SKIP_UI=1 from SRC_DIR=$WORKDIR"
+  SRC_DIR="$WORKDIR" SKIP_UI=1 bash "scripts/install_pi.sh" || die "installer failed"
 else
-  log "Running installer"
-  bash "$WORKDIR/scripts/install_pi.sh" || die "installer failed"
+  log "Running installer from SRC_DIR=$WORKDIR"
+  SRC_DIR="$WORKDIR" bash "scripts/install_pi.sh" || die "installer failed"
 fi
 
 log "Install complete. Services: piguard-api piguard-sensor piguard-sniffer"
