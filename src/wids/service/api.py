@@ -343,6 +343,19 @@ async def set_deauth_settings(request: Request):
         pass
     return {"ok": True, "deauth": _ensure_default_deauth(cfg.get("thresholds", {}).get("deauth"))}
 
+# Accept alternate forms to avoid 405 from trailing slashes or different verbs
+@app.post("/api/settings/deauth/", dependencies=[Depends(require_key)])
+async def set_deauth_settings_slash(request: Request):
+    return await set_deauth_settings(request)
+
+@app.put("/api/settings/deauth", dependencies=[Depends(require_key)])
+async def put_deauth_settings(request: Request):
+    return await set_deauth_settings(request)
+
+@app.put("/api/settings/deauth/", dependencies=[Depends(require_key)])
+async def put_deauth_settings_slash(request: Request):
+    return await set_deauth_settings(request)
+
 # === SSE: stream new alerts in near real-time ===
 subscribers = set()
 
