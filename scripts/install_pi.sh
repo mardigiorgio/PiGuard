@@ -55,7 +55,8 @@ setup_config() {
 
 setup_venv() {
   if [[ ! -d "$VENV" ]]; then
-    python3 -m venv "$VENV"
+    # Create venv with copies to avoid symlinked python -> /usr/bin/python3 (prevents exec EPERM issues)
+    python3 -m venv --copies "$VENV"
   fi
   # shellcheck disable=SC1090
   source "$VENV/bin/activate"
@@ -63,6 +64,20 @@ setup_venv() {
   # Install dependencies (editable install keeps source path and serves UI from repo)
   pip install -e "$APP_DIR"
   PY="$VENV/bin/python"
+
+  # Ensure venv python is a real binary and executable
+  if [[ -L "$VENV/bin/python3" ]]; then
+    echo "Recreating venv with --copies to avoid symlinked python"
+    deactivate || true
+    rm -rf "$VENV"
+    python3 -m venv --copies "$VENV"
+    # shellcheck disable=SC1090
+    source "$VENV/bin/activate"
+    pip install --upgrade pip wheel
+    pip install -e "$APP_DIR"
+    PY="$VENV/bin/python"
+  fi
+  chmod 755 "$VENV/bin/python3" || true
 }
 
 set_caps() {
@@ -75,6 +90,9 @@ set_caps() {
       setcap cap_net_raw,cap_net_admin+eip "$pybin" || true
     fi
   fi
+  # Always clear capabilities on system python to avoid surprises when venv uses a symlink
+  setcap -r /usr/bin/python3 2>/dev/null || true
+  setcap -r /usr/bin/python 2>/dev/null || true
 }
 
 build_ui() {
@@ -98,7 +116,11 @@ install_units() {
   install -m 0644 "$APP_DIR/deploy/systemd/piguard-sensor.service" /etc/systemd/system/
   install -m 0644 "$APP_DIR/deploy/systemd/piguard-sniffer.service" /etc/systemd/system/
   systemctl daemon-reload
-  systemctl enable piguard-api piguard-sensor piguard-sniffer
+  systemctl enable --now piguard-api piguard-sensor piguard-sniffer || true
+  # Show brief status summary
+  systemctl --no-pager --full status piguard-api | sed -n '1,12p' || true
+  systemctl --no-pager --full status piguard-sensor | sed -n '1,12p' || true
+  systemctl --no-pager --full status piguard-sniffer | sed -n '1,12p' || true
 }
 
 sudoers_snippet() {
@@ -132,10 +154,20 @@ Next steps:
 UI:
   If you built the UI, browse to http://<pi-ip>:8080/ and set X-Api-Key in the UI dev env if needed.
 EOF
+choose_prefix() {
+  # If /opt is mounted noexec, fall back to /srv
+  local opts
+  opts=$(findmnt -no OPTIONS /opt 2>/dev/null || true)
+  if echo "$opts" | grep -q '\bnoexec\b'; then
+    echo "/opt is mounted noexec; using /srv/piguard instead"
+    APP_DIR=/srv/piguard
+  fi
+}
 }
 
 main() {
   need_root
+  choose_prefix
   pkg_install
   create_user
   sync_code

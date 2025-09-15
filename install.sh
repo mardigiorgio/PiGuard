@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Fail-friendly logging
+log() { echo "[install] $*"; }
+die() { echo "[install][error] $*" >&2; exit 1; }
+
 # Wrapper installer for PiGuard
 # - Optional: --repo <git-url> [--branch <name>] to clone first
 # - Optional: --skip-ui to skip building the UI
@@ -36,8 +40,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ $EUID -ne 0 ]]; then
-  echo "This installer must run as root (sudo)." >&2
-  exit 1
+  log "Re-running with sudo..."
+  exec sudo -E "$0" "$@"
 fi
 
 WORKDIR="$(pwd)"
@@ -45,27 +49,27 @@ if [[ -n "$REPO" ]]; then
   # Clone into a temp working dir
   TMPDIR="/tmp/piguard-src-$$"
   mkdir -p "$TMPDIR"
-  if command -v git >/dev/null 2>&1; then
-    git clone --depth 1 --branch "$BRANCH" "$REPO" "$TMPDIR"
-  else
-    echo "git is required to clone --repo URL" >&2
-    exit 1
+  if ! command -v git >/dev/null 2>&1; then
+    log "git not found; installing via apt..."
+    apt-get update -y || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y git || die "failed to install git"
   fi
+  log "Cloning $REPO (branch=$BRANCH) to $TMPDIR"
+  git clone --depth 1 --branch "$BRANCH" "$REPO" "$TMPDIR" || die "git clone failed"
   WORKDIR="$TMPDIR"
 fi
 
 if [[ ! -x "$WORKDIR/scripts/install_pi.sh" ]]; then
-  echo "installer not found: $WORKDIR/scripts/install_pi.sh" >&2
-  echo "Make sure you are running this from a PiGuard checkout or pass --repo <url>." >&2
-  exit 1
+  die "installer not found: $WORKDIR/scripts/install_pi.sh (pass --repo <url> or run from project root)"
 fi
 
 # Pass SKIP_UI to the real installer
 if [[ $SKIP_UI -eq 1 ]]; then
-  SKIP_UI=1 bash "$WORKDIR/scripts/install_pi.sh"
+  log "Running installer with SKIP_UI=1"
+  SKIP_UI=1 bash "$WORKDIR/scripts/install_pi.sh" || die "installer failed"
 else
-  bash "$WORKDIR/scripts/install_pi.sh"
+  log "Running installer"
+  bash "$WORKDIR/scripts/install_pi.sh" || die "installer failed"
 fi
 
-echo "Install complete."
-
+log "Install complete. Services: piguard-api piguard-sensor piguard-sniffer"
