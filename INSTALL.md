@@ -1,98 +1,98 @@
 # PiGuard Installation Guide
 
-This guide provides comprehensive installation instructions for PiGuard Wi-Fi Intrusion Detection System on Raspberry Pi devices.
+This guide will help you install PiGuard on your Raspberry Pi to monitor your home Wi-Fi network for attacks and suspicious activity.
 
-## Quick Start Installation
+## Quick Installation
 
-For most users, the automated installer provides the fastest and most reliable installation:
+For most people, this one command is all you need:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/mardigiorgio/PiGuard/main/install.sh | sudo bash
 ```
 
-This command will automatically verify hardware compatibility, install dependencies, configure the system, and start monitoring services.
+This will check that your Pi will work with PiGuard, install everything needed, and start monitoring your network automatically.
 
 ---
 
 ## Installation Options
 
-PiGuard supports multiple installation modes to accommodate different deployment scenarios:
+If you want more control over the installation process, you can use these options:
 
 ### Express Mode (Default)
-Fully automated installation with optimized defaults:
+Just install everything automatically with good defaults:
 ```bash
 curl -sSL https://raw.githubusercontent.com/mardigiorgio/PiGuard/main/install.sh | sudo bash --express
 ```
 
 ### Guided Mode
-Interactive installation with detailed explanations:
+Walk through the installation step-by-step with explanations:
 ```bash
 curl -sSL https://raw.githubusercontent.com/mardigiorgio/PiGuard/main/install.sh | sudo bash --guided
 ```
 
 ### Advanced Mode
-Complete control over all configuration options:
+Full control over all settings (for experienced users):
 ```bash
 curl -sSL https://raw.githubusercontent.com/mardigiorgio/PiGuard/main/install.sh | sudo bash --advanced
 ```
 
 ### Headless Mode
-Silent installation suitable for remote deployment:
+Install without any prompts (good for remote Pis):
 ```bash
 curl -sSL https://raw.githubusercontent.com/mardigiorgio/PiGuard/main/install.sh | sudo bash --headless
 ```
 
 ---
 
-## System Requirements
+## What You Need
 
-### Hardware Requirements
-- **Raspberry Pi 3, 4, or 5** (Pi 5 recommended for optimal performance)
-- **Wi-Fi adapter with monitor mode support** (most built-in Pi adapters supported)
-- **MicroSD card**: 16GB minimum, 32GB+ recommended
-- **Power supply**: Official Raspberry Pi power adapter recommended
+### Hardware
+- **Raspberry Pi 3, 4, or 5** (Pi 4 or 5 work best, but Pi 3 is fine for home use)
+- **Wi-Fi adapter that supports monitor mode** (the built-in Wi-Fi on most Pi models works great)
+- **SD card**: 16GB minimum, but 32GB+ is better if you want to keep logs longer
+- **Decent power supply**: Use the official Pi power adapter if possible
 
-### Software Requirements
-- **Operating System**: Raspberry Pi OS (64-bit recommended) or Ubuntu 20.04+ for ARM64
-- **Internet connectivity** for package downloads during installation
-- **Root access** (installer must run with sudo privileges)
+### Software
+- **Raspberry Pi OS** (the standard OS that comes with Pi, 64-bit version preferred)
+- **Internet connection** during installation to download packages
+- **Ability to run sudo** (you'll need to run the installer with sudo)
 
-### Supported Hardware Matrix
-| Device | Status | Performance Level | Notes |
-|--------|--------|-------------------|--------|
-| Raspberry Pi 5 | ✓ Fully Supported | Excellent | Optimal choice for production |
-| Raspberry Pi 4 | ✓ Fully Supported | Very Good | Recommended for most deployments |
-| Raspberry Pi 3B+ | ✓ Supported | Good | Suitable for home networks |
-| Raspberry Pi 3B | ✓ Supported | Adequate | Basic monitoring capabilities |
-| Raspberry Pi Zero 2 W | ⚠ Limited Support | Basic | Reduced feature set |
+### Which Pi Models Work
+| Pi Model | Works? | How Well? | Good For |
+|----------|--------|-----------|----------|
+| Raspberry Pi 5 | ✓ Yes | Excellent | Best performance, handles everything |
+| Raspberry Pi 4 | ✓ Yes | Very Good | Great for most home setups |
+| Raspberry Pi 3B+ | ✓ Yes | Good | Perfect for typical home networks |
+| Raspberry Pi 3B | ✓ Yes | Decent | Works fine, might be a bit slower |
+| Raspberry Pi Zero 2 W | ⚠ Maybe | Limited | Basic monitoring only |
 
 ---
 
-## Installation Process
+## Installation Steps
 
-### Step 1: System Preparation
+### Step 1: Prepare Your Pi
 
-1. **Flash Raspberry Pi OS** using [Raspberry Pi Imager](https://rpi.org/imager)
-2. **Enable SSH access** (optional, for remote installation):
+1. **Install Raspberry Pi OS** using the [Raspberry Pi Imager](https://rpi.org/imager)
+2. **Enable SSH** if you want to install remotely (optional):
    ```bash
    sudo systemctl enable ssh
    sudo systemctl start ssh
    ```
-3. **Update system packages** (recommended):
+3. **Update your Pi** (good idea but not required):
    ```bash
    sudo apt update && sudo apt upgrade -y
    ```
 
-### Step 2: Execute Installation
+### Step 2: Run the Installer
 
-Run the installer using your preferred mode. The installation process includes:
+Choose one of the installation modes from above and run it. The installer will:
 
-1. **Hardware Compatibility Check** - Verifies Raspberry Pi model and Wi-Fi adapter support
-2. **Dependency Installation** - Downloads and installs Python, Node.js, and system packages
-3. **System Configuration** - Creates user accounts, directories, and service configurations
-4. **Application Build** - Compiles PiGuard components and builds the web interface
-5. **Service Deployment** - Installs and starts systemd services
-6. **Network Configuration** - Sets up Wi-Fi monitoring interfaces
+1. **Check your hardware** - Make sure your Pi and Wi-Fi will work
+2. **Download software** - Get Python, Node.js, and other needed parts
+3. **Set everything up** - Create accounts, folders, and configure services
+4. **Build the web interface** - Compile the dashboard you'll use
+5. **Start services** - Launch the monitoring processes
+6. **Configure Wi-Fi monitoring** - Set up your Wi-Fi interface for packet capture
 
 ### Step 3: Interactive Configuration
 

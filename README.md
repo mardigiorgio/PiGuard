@@ -1,6 +1,6 @@
 # PiGuard — Wi‑Fi Intrusion Detection for Raspberry Pi
 
-PiGuard is a lightweight Wi‑Fi intrusion detection system (WIDS) designed for Raspberry Pi devices. It detects deauthentication attacks and rogue access points in real time, provides a clean web interface, and exposes an API for automation.
+PiGuard is a Wi‑Fi intrusion detection system (WIDS) designed for home networks and Raspberry Pi enthusiasts. It detects deauthentication attacks and rogue access points in real time, provides a clean web interface, and is perfect for learning about network security.
 
 - **Backend**: FastAPI + SQLite (SQLModel)
 - **Sniffer**: Scapy + libpcap filters, channel hopping
@@ -28,64 +28,59 @@ sudo ./install.sh
 - `--express` - Fully automated with optimal defaults (default)
 - `--guided` - Step-by-step with explanations
 - `--advanced` - Full control over all options
-- `--headless` - Silent installation for remote deployment
+- `--headless` - Silent installation for remote setup
 
 **For detailed installation guide:** [INSTALL.md](INSTALL.md)
 **Quick start guide:** [GETTING_STARTED.md](GETTING_STARTED.md)
 **Hardware compatibility:** [HARDWARE.md](HARDWARE.md)
 
-## Features
+## What PiGuard Does
 
-- **Real‑time deauth detection** with tunable thresholds
-- **Rogue AP detection** (SSID allowlists, channel/band constraints, RSN mismatch)
-- **Channel hopping** with live config reload; optional fixed channel lock
-- **Built‑in web UI** (device controls, defense config, logs, settings)
-- **Service management from UI** (restart sniffer/sensor)
-- **SSE stream for alerts**; REST API for logs/events/config
-- **Hardened installer** ensures Python/Node/npm, builds UI, installs systemd units
-- **Optimized ingest** BPF capture filters, bulk DB inserts, SQLite WAL
+- **Real‑time deauth detection** - Catch Wi-Fi jamming attacks on your home network
+- **Rogue AP detection** - Spot fake networks trying to impersonate your Wi-Fi
+- **Channel hopping** - Monitor all Wi-Fi channels or focus on specific ones
+- **Built‑in web UI** - Easy-to-use interface for monitoring and configuration
+- **Alert system** - Get notified via Discord or email when attacks are detected
+- **Educational** - Great for learning about Wi-Fi security and network monitoring
 
 ## Requirements
 
-- **Hardware**: Raspberry Pi 3/4/5 or similar ARM64 device
+- **Hardware**: Raspberry Pi 3/4/5 or similar ARM device
 - **OS**: Raspberry Pi OS or Ubuntu (arm64)
-- **Wi‑Fi**: Adapter and driver that support monitor mode (nl80211)
+- **Wi‑Fi**: Adapter that supports monitor mode (most Pi built-in Wi-Fi works)
 - **Network**: Internet connection for installation
-- **Storage**: 16GB+ SD card (32GB+ recommended)
+- **Storage**: 16GB+ SD card (32GB+ recommended for longer logs)
 
-## Detection Capabilities
+## What It Detects
 
-| Attack Type | Description | Alerting |
-|-------------|-------------|----------|
-| **Deauth Attacks** | Attempts to disconnect devices from Wi-Fi | Real-time alerts |
-| **Rogue Access Points** | Fake networks impersonating your SSID | Instant detection |
-| **Power Anomalies** | Unusual signal strength variations | Smart analysis |
-| **Network Reconnaissance** | Scanning and probing attempts | Activity logging |
+| Attack Type | Description | What You'll See |
+|-------------|-------------|------------------|
+| **Deauth Attacks** | Someone trying to kick devices off your Wi-Fi | Real-time alerts in web UI |
+| **Rogue Access Points** | Fake networks pretending to be your Wi-Fi | Instant notifications |
+| **Power Anomalies** | Unusual signal strength patterns | Smart analysis and logging |
+| **Network Scanning** | People probing your network | Activity logs |
 
 ## Web Interface
 
-After installation, access the web interface at:
-```
-http://YOUR_PI_IP:8080
-```
+After installation, visit `http://YOUR_PI_IP:8080` to access the web interface:
 
-**Interface tabs:**
-- **Overview** - System status and activity
-- **Alerts** - Security alerts and intrusions
-- **Defense** - Configure protected networks
-- **Device** - Wi-Fi interface management
-- **Settings** - Detection thresholds and tuning
-- **Logs** - System and event logs
+**Main tabs:**
+- **Overview** - See what's happening on your network right now
+- **Alerts** - Review security alerts and potential attacks
+- **Defense** - Configure which network to protect
+- **Device** - Manage Wi-Fi interfaces and channel settings
+- **Settings** - Adjust detection sensitivity
+- **Logs** - View detailed system logs
 
-## Services
+## Managing PiGuard
 
-PiGuard runs as three systemd services:
+PiGuard runs as three background services:
 
 ```bash
-# Service status
+# Check if everything is running
 sudo systemctl status piguard-api piguard-sniffer piguard-sensor
 
-# Service management
+# Restart if needed
 sudo systemctl restart piguard-sniffer
 sudo systemctl restart piguard-sensor
 sudo systemctl restart piguard-api
@@ -96,50 +91,35 @@ journalctl -u piguard-sniffer -f
 journalctl -u piguard-sensor -f
 ```
 
-**Service roles:**
-- `piguard-api` — FastAPI server (serves UI and API)
-- `piguard-sniffer` — Capture loop (requires monitor mode)
-- `piguard-sensor` — Detection loop (reads DB and emits alerts)
+**What each service does:**
+- `piguard-api` — Web interface and API
+- `piguard-sniffer` — Captures Wi-Fi packets
+- `piguard-sensor` — Analyzes packets for attacks
 
 ## Configuration
 
-Primary config: `/etc/piguard/wids.yaml`
+Main config file: `/etc/piguard/wids.yaml`
 
-**Key sections:**
-- `database.path`: SQLite file path (e.g., `/var/lib/piguard/db.sqlite`)
-- `api.bind_host` / `api.bind_port` / `api.api_key`: API server and key
-- `capture.iface`: Monitor‑mode interface (e.g., `wlan0mon`)
-- `defense.ssid`: The single SSID to protect (arming the sensor)
-- `thresholds.deauth`: Detection sensitivity settings
-- `alerts`: Discord webhook and/or email SMTP settings
+**Key settings you might want to change:**
+- `capture.iface`: Which Wi-Fi interface to monitor (e.g., `wlan0mon`)
+- `defense.ssid`: Your Wi-Fi network name to protect
+- `thresholds.deauth`: How sensitive the detection should be
+- `alerts`: Discord webhook or email settings for notifications
 
-Most settings can be configured through the web interface.
+Most settings can be changed through the web interface - no need to edit files manually.
 
-## API Quick Reference
+## Common Tasks
 
-- **Health/overview**: `GET /api/health`, `GET /api/overview`
-- **Alerts**: `GET /api/alerts`, `POST /api/alerts/test`, `GET /api/stream` (SSE)
-- **Logs/events**: `GET /api/logs`, `GET /api/events`
-- **Settings**: `GET/POST /api/settings/deauth`
-- **Defense**: `GET/POST /api/defense`
-- **Capture**: `GET/POST /api/capture`
-- **Device/iface**: `GET /api/ifaces`, `POST /api/iface/monitor`
-- **Admin**: `POST /api/admin/clear`, `POST /api/admin/restart`
-
-All protected endpoints require `X-Api-Key` header.
-
-## Performance Tuning
-
-**Make deauth detection more sensitive:**
+**Make detection more sensitive:**
 - Increase `window_sec`, lower `global_limit` and `per_src_limit`, reduce `cooldown_sec`
 
-**Capture more packets per channel:**
-- Increase `hop.dwell_ms`, reduce hopped channel set (e.g., `[1,6,11]`), or switch to `mode=lock`
+**Monitor specific channels only:**
+- Increase `hop.dwell_ms`, set channels to `[1,6,11]`, or switch to `mode=lock`
 
-**Optimize for your Pi model:**
-- Pi 5: All features enabled, maximum sensitivity
-- Pi 4: Excellent performance, reduce channels for very busy networks
-- Pi 3: Basic monitoring, focus on key channels (1,6,11)
+**Optimize for your Pi:**
+- Pi 5/4: Can handle all features
+- Pi 3: Works great for home networks, might want to limit channels
+- Pi Zero 2: Basic monitoring only
 
 ## Troubleshooting
 
@@ -147,48 +127,47 @@ All protected endpoints require `X-Api-Key` header.
 
 | Problem | Solution |
 |---------|----------|
-| `HTTP 401 Unauthorized` | Check API key in `/etc/piguard/wids.yaml` |
-| `sniffer: interface DOWN` | Create monitor interface in Device tab |
-| UI not accessible | Check `systemctl status piguard-api` |
-| No packets captured | Verify monitor mode: `iw dev` |
+| Can't access web interface | Check `sudo systemctl status piguard-api` |
+| "HTTP 401 Unauthorized" | Check API key in `/etc/piguard/wids.yaml` |
+| No packets being captured | Make sure Wi-Fi interface supports monitor mode |
+| Services keep crashing | Check logs with `journalctl -u piguard-sniffer -f` |
 
-**Get help:**
+**Need help?**
 - [Installation Guide](INSTALL.md)
-- [Hardware Compatibility](HARDWARE.md)
+- [Hardware Guide](HARDWARE.md)
 - [GitHub Issues](https://github.com/mardigiorgio/PiGuard/issues)
 - [GitHub Discussions](https://github.com/mardigiorgio/PiGuard/discussions)
 
-## Development
+## For Developers
 
-**Local development server:**
+**Run locally:**
 ```bash
-# API + sensor (+ sniffer via sudo) using configs/wids.yaml
+# Start API + sensor (+ sniffer via sudo) using configs/wids.yaml
 python -m wids dev --config configs/wids.yaml --ui
 ```
 
-**CLI helpers:**
+**CLI tools:**
 ```bash
 python -m wids iface-up --dev wlan0mon
 python -m wids sniffer --config configs/wids.yaml
 python -m wids sensor  --config configs/wids.yaml
 ```
 
-## Security Considerations
+## Security Notes
 
-- Capture requires raw socket privileges; services run with minimal required permissions
-- API access protected by cryptographically secure keys
-- Local-only database storage (no external data transmission)
-- Prefer deploying on dedicated Pi or isolated VLAN
-- Regular security updates recommended
+- PiGuard only monitors and alerts - it doesn't block attacks
+- All data stays on your Raspberry Pi (no cloud services)
+- API access is protected with a secure key
+- Consider using a dedicated Pi for monitoring if you're paranoid
+- Keep your Pi updated with security patches
 
-## Roadmap
+## What's Planned
 
-- **Native sniffer** in Rust or Go for lower CPU usage
-- **External time‑series DB** support for long‑term storage
-- **Expanded Settings UI** for rogue thresholds and notifications
-- **Package distribution** as .deb and Docker image
-- **Multi-node deployment** for large network coverage
-- **SIEM integration** plugins for enterprise environments
+- Better mobile interface
+- More alert types
+- Improved performance on older Pi models
+- Package for easier installation
+- Docker container option
 
 ## License
 
@@ -196,13 +175,13 @@ python -m wids sensor  --config configs/wids.yaml
 
 ## Contributing
 
-We welcome contributions! Please see our contributing guidelines and feel free to:
+This is a learning project and contributions are welcome! Feel free to:
 
-- Report bugs via [GitHub Issues](https://github.com/mardigiorgio/PiGuard/issues)
-- Suggest features via [GitHub Discussions](https://github.com/mardigiorgio/PiGuard/discussions)
+- Report bugs or suggest features via [GitHub Issues](https://github.com/mardigiorgio/PiGuard/issues)
+- Ask questions in [GitHub Discussions](https://github.com/mardigiorgio/PiGuard/discussions)
 - Submit pull requests for improvements
-- Help improve documentation
+- Share your setup and experiences
 
 ---
 
-**Protect your network with PiGuard**
+**Protect your home network with PiGuard**

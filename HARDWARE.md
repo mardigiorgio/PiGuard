@@ -1,41 +1,48 @@
-# Hardware Compatibility Guide
+# Hardware Guide
 
-This guide provides comprehensive hardware requirements and compatibility information for PiGuard Wi-Fi Intrusion Detection System deployment.
+This guide helps you choose the right Raspberry Pi and Wi-Fi adapter for running PiGuard in your home.
 
-## Supported Raspberry Pi Models
+## Which Raspberry Pi Should You Get?
 
-| Model | Support Status | Performance Level | Recommended Use Case |
-|-------|---------------|-------------------|---------------------|
-| **Raspberry Pi 5** | ✓ Fully Supported | Excellent | Production deployments |
-| **Raspberry Pi 4B** | ✓ Fully Supported | Very Good | General purpose monitoring |
-| **Raspberry Pi 4A** | ✓ Supported | Good | Small network monitoring |
-| **Raspberry Pi 3B+** | ✓ Supported | Adequate | Home network protection |
-| **Raspberry Pi 3B** | ✓ Supported | Basic | Limited monitoring scope |
-| **Raspberry Pi Zero 2 W** | ⚠ Limited Support | Minimal | Basic threat detection only |
-| **Raspberry Pi Zero W** | ✗ Not Recommended | Insufficient | Inadequate processing power |
+| Pi Model | Works? | How Well? | What's It Good For? |
+|----------|--------|-----------|---------------------|
+| **Raspberry Pi 5** | ✓ Yes | Excellent | Best choice if you want top performance |
+| **Raspberry Pi 4B** | ✓ Yes | Very Good | Great all-around choice for most homes |
+| **Raspberry Pi 4A** | ✓ Yes | Good | Solid option for smaller homes |
+| **Raspberry Pi 3B+** | ✓ Yes | Pretty Good | Perfect for typical home Wi-Fi monitoring |
+| **Raspberry Pi 3B** | ✓ Yes | Decent | Works fine, just a bit slower |
+| **Raspberry Pi Zero 2 W** | ⚠ Maybe | Limited | Only basic monitoring, might struggle |
+| **Raspberry Pi Zero W** | ✗ No | Too Slow | Not powerful enough for PiGuard |
 
-## Wi-Fi Adapter Compatibility
+## Wi-Fi Adapters: Built-in vs USB
 
-### Built-in Wi-Fi Controllers
+### Built-in Wi-Fi (What comes with your Pi)
 
-| Pi Model | Wi-Fi Controller | Monitor Mode Support | Performance Rating |
-|----------|-----------------|---------------------|-------------------|
+Good news! The Wi-Fi that comes built into most Raspberry Pi models works great with PiGuard:
+
+| Pi Model | Built-in Wi-Fi | Works for PiGuard? | Performance |
+|----------|---------------|-------------------|-------------|
 | Pi 5 | Broadcom BCM2712 | ✓ Yes | Excellent |
 | Pi 4 | Broadcom BCM43455 | ✓ Yes | Very Good |
 | Pi 3B+ | Broadcom BCM43455 | ✓ Yes | Good |
-| Pi 3B | Broadcom BCM43438 | ✓ Yes | Basic |
+| Pi 3B | Broadcom BCM43438 | ✓ Yes | Basic but fine |
 | Pi Zero 2 W | Broadcom BCM43436 | ✓ Yes | Limited |
 
-### External USB Wi-Fi Adapters
+### USB Wi-Fi Adapters (Optional)
 
-#### Highly Recommended Adapters
+You might want an external USB Wi-Fi adapter if:
+- You want better range or performance
+- You want to monitor 5GHz networks (older Pi models only do 2.4GHz)
+- You want to keep your built-in Wi-Fi for internet while using USB for monitoring
 
-| Adapter Model | Chipset | Frequency Bands | Monitor Mode | Price Range |
-|---------------|---------|----------------|--------------|-------------|
-| **Alfa AWUS036ACS** | Realtek RTL8811AU | 2.4GHz / 5GHz | ✓ Excellent | $30-40 USD |
-| **Alfa AWUS036AC** | Realtek RTL8812AU | 2.4GHz / 5GHz | ✓ Excellent | $35-45 USD |
-| **Panda PAU09** | Ralink RT5372 | 2.4GHz | ✓ Good | $15-20 USD |
-| **TP-Link AC600 T2U** | Realtek RTL8811AU | 2.4GHz / 5GHz | ✓ Good | $20-25 USD |
+#### Good Options for Home Use
+
+| Adapter | What Bands? | Works Well? | Cost | Notes |
+|---------|-------------|-------------|------|-------|
+| **Alfa AWUS036ACS** | 2.4GHz + 5GHz | ✓ Excellent | ~$35 | Best overall choice |
+| **TP-Link AC600 T2U** | 2.4GHz + 5GHz | ✓ Good | ~$22 | Good budget option |
+| **Panda PAU09** | 2.4GHz only | ✓ Good | ~$18 | Cheap and reliable |
+| **Alfa AWUS036NEH** | 2.4GHz only | ✓ Good | ~$23 | Popular choice |
 
 #### Alternative Options
 
@@ -90,31 +97,31 @@ This guide provides comprehensive hardware requirements and compatibility inform
 | **Pi 3B+** | 1GB | ~120MB | 880MB |
 | **Pi Zero 2W** | 512MB | ~100MB | 412MB |
 
-## Recommended System Configurations
+## Recommended Setups
 
-### Enterprise Deployment
-**Hardware**: Raspberry Pi 5 + Alfa AWUS036ACS
-- **Total Cost**: ~$110 USD
-- **Performance**: Professional-grade monitoring capability
-- **Configuration**: External adapter for monitoring, built-in Wi-Fi for management connectivity
+### Best Overall (Recommended)
+**Hardware**: Raspberry Pi 4B + Built-in Wi-Fi
+- **Total Cost**: ~$75
+- **Why**: Great performance, easy setup, built-in Wi-Fi works perfectly
+- **Good for**: Most home networks
 
-### Standard Office Setup
-**Hardware**: Raspberry Pi 4B + Built-in Wi-Fi controller
-- **Total Cost**: ~$75 USD
-- **Performance**: Excellent for most business environments
-- **Configuration**: Built-in Wi-Fi for monitoring, Ethernet for management
+### Budget Option
+**Hardware**: Raspberry Pi 3B+ + Built-in Wi-Fi
+- **Total Cost**: ~$55
+- **Why**: Cheaper but still works well for home monitoring
+- **Good for**: Simple home setups, learning about Wi-Fi security
 
-### Budget Home Protection
-**Hardware**: Raspberry Pi 3B+ + TP-Link TL-WN722N
-- **Total Cost**: ~$50 USD
-- **Performance**: Basic but functional monitoring
-- **Configuration**: USB adapter for monitoring, Ethernet recommended for stability
+### High Performance
+**Hardware**: Raspberry Pi 5 + Alfa USB adapter
+- **Total Cost**: ~$110
+- **Why**: Maximum performance and range
+- **Good for**: Large homes, want to monitor 5GHz thoroughly, tech enthusiasts
 
-### Multi-Point Coverage
-**Hardware**: Multiple Pi 5 units with Alfa adapters
-- **Cost per Unit**: ~$110 USD
-- **Performance**: Comprehensive network coverage
-- **Configuration**: Distributed monitoring points with centralized management
+### Ultra Budget
+**Hardware**: Raspberry Pi 3B + Built-in Wi-Fi
+- **Total Cost**: ~$35 (if you find a Pi 3B used)
+- **Why**: Cheapest option that still works
+- **Good for**: Just want to try PiGuard, very basic monitoring
 
 ## Storage Requirements
 
