@@ -3,7 +3,7 @@ import yaml, pathlib, os
 
 def setup_logging():
     logger.remove()
-    logger.add(lambda m: print(m, end=""), level="INFO")
+    logger.add(lambda m: None, level="INFO")
     return logger
 
 def load_config(path: str) -> dict:

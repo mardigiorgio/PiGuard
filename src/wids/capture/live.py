@@ -156,8 +156,6 @@ def run_sniffer(
         try:
             ts = datetime.utcnow().isoformat() + "Z"
             line = f"[{ts}] {msg}\n"
-            # Console print for live feedback
-            print(line, end="")
             if anomaly_fh:
                 anomaly_fh.write(line)
                 anomaly_fh.flush()
@@ -257,7 +255,7 @@ def run_sniffer(
                     # Optional live debug printing (disabled by default for performance)
                     if debug_print:
                         try:
-                            print(f"[sniffer] ch={chan} pwr={int(rssi)} ssid={ssid or ''} bssid={b_lower}")
+                            _anomaly_log(f"sniffer: ch={chan} pwr={int(rssi)} ssid={ssid or ''} bssid={b_lower}")
                         except Exception:
                             pass
                     if len(win) >= max(3, int(rssi_window) // 2):

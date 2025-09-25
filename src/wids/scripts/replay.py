@@ -1,5 +1,5 @@
 # src/wids/scripts/replay.py
-from wids.common import load_config
+from wids.common import load_config, setup_logging
 from wids.db import get_engine, init_db, ensure_schema, session, Event
 from wids.ie.rsn import parse_rsn_info
 from datetime import datetime
@@ -27,8 +27,9 @@ def replay(cfg, pcap_path, band, chan):
     ensure_schema(engine)
     count = 0
     with session(engine) as db:
+        logger = setup_logging()
         if not os.path.exists(pcap_path):
-            print(f"[!] PCAP not found: {pcap_path}")
+            logger.error(f"PCAP not found: {pcap_path}")
             return
         for pkt in PcapReader(pcap_path):
             if not pkt.haslayer(Dot11):
@@ -78,7 +79,7 @@ def replay(cfg, pcap_path, band, chan):
             if count % 500 == 0:
                 db.commit()
         db.commit()
-    print(f"[ok] Replayed {count} frames into {cfg['database']['path']}")
+    logger.info(f"Replayed {count} frames into {cfg['database']['path']}")
 
 def main():
     ap = argparse.ArgumentParser()

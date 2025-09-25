@@ -1,5 +1,5 @@
 # src/wids/sensor/main.py
-from wids.common import load_config
+from wids.common import load_config, setup_logging
 from wids.db import get_engine, init_db, ensure_schema, session, Event, Alert, Log
 from wids.alerts import send_discord, send_email
 
@@ -67,8 +67,9 @@ def loop(cfg, config_path: str | None = None):
     pwr_win = int(rogue_cfg.get("pwr_window", 20) or 20)
     pwr_var_threshold = float(rogue_cfg.get("pwr_var_threshold", 150) or 150)
     pwr_cooldown = int(rogue_cfg.get("pwr_cooldown_sec", 10) or 10)
+    logger = setup_logging()
 
-    print(f"[sensor] deauth window={w}s per_src={per_src} global={glob} cooldown={cooldown}s")
+    logger.info(f"sensor: deauth window={w}s per_src={per_src} global={glob} cooldown={cooldown}s")
 
     last_fire_ts = 0.0
     last_sig = None
@@ -81,7 +82,7 @@ def loop(cfg, config_path: str | None = None):
     def _sig(*_):
         nonlocal stop
         stop = True
-        print("\n[sensor] stopping...")
+        logger.info("sensor: stopping...")
 
     signal.signal(signal.SIGINT, _sig)
     signal.signal(signal.SIGTERM, _sig)
