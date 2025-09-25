@@ -325,6 +325,19 @@ PY
   echo "Interactive configuration complete."
 }
 
+run_enhanced_interactive_config() {
+  # Use enhanced setup if available and in guided/interactive mode
+  if [[ -f "$APP_DIR/scripts/enhanced_setup.sh" ]] && ([[ "${GUIDED_MODE:-}" == "1" ]] || [[ "${INTERACTIVE:-}" == "1" ]]); then
+    echo "Running enhanced interactive configuration..."
+    # shellcheck disable=SC1090
+    source "$APP_DIR/scripts/enhanced_setup.sh"
+    run_enhanced_setup "$CFG_DIR" "$VENV"
+  else
+    # Fall back to original interactive config
+    interactive_config
+  fi
+}
+
 main() {
   need_root
   choose_prefix
@@ -335,7 +348,7 @@ main() {
   setup_config
   setup_venv
   set_caps
-  interactive_config
+  run_enhanced_interactive_config
   build_ui
   install_units
   sudoers_snippet
