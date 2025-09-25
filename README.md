@@ -136,7 +136,6 @@ Most settings can be changed through the web interface - no need to edit files m
 - [Installation Guide](INSTALL.md)
 - [Hardware Guide](HARDWARE.md)
 - [GitHub Issues](https://github.com/mardigiorgio/PiGuard/issues)
-- [GitHub Discussions](https://github.com/mardigiorgio/PiGuard/discussions)
 
 ## For Developers
 
