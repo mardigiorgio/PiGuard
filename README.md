@@ -1,14 +1,24 @@
 # PiGuard — Wi‑Fi Intrusion Detection for Raspberry Pi
 
+## Overview
 PiGuard is a Wi‑Fi intrusion detection system (WIDS) designed for home networks and Raspberry Pi enthusiasts. It detects deauthentication attacks and rogue access points in real time, provides a clean web interface, and is perfect for learning about network security.
 
+## Features
+- **Real‑time deauth detection** — Catch Wi-Fi jamming attacks on your home network
+- **Rogue AP detection** — Spot fake networks trying to impersonate your Wi-Fi
+- **Channel hopping** — Monitor all Wi-Fi channels or focus on specific ones
+- **Built‑in web UI** — Easy-to-use interface for monitoring and configuration
+- **Alert system** — Get notified via Discord or email when attacks are detected
+- **Educational** — Great for learning about Wi-Fi security and network monitoring
+
+## Technical Stack
 - **Backend**: FastAPI + SQLite (SQLModel)
 - **Sniffer**: Scapy + libpcap filters, channel hopping
 - **Sensor**: Stateful detection loop (deauth bursts, rogue AP/RSN mismatch, power variance anomalies)
 - **UI**: Svelte + Vite
 - **Installer**: One‑command setup with interactive config and systemd services
 
-## Quick Installation
+## Installation
 
 **One-line installation (recommended):**
 
@@ -34,14 +44,6 @@ sudo ./install.sh
 **Quick start guide:** [GETTING_STARTED.md](GETTING_STARTED.md)
 **Hardware compatibility:** [HARDWARE.md](HARDWARE.md)
 
-## What PiGuard Does
-
-- **Real‑time deauth detection** - Catch Wi-Fi jamming attacks on your home network
-- **Rogue AP detection** - Spot fake networks trying to impersonate your Wi-Fi
-- **Channel hopping** - Monitor all Wi-Fi channels or focus on specific ones
-- **Built‑in web UI** - Easy-to-use interface for monitoring and configuration
-- **Alert system** - Get notified via Discord or email when attacks are detected
-- **Educational** - Great for learning about Wi-Fi security and network monitoring
 
 ## Requirements
 
