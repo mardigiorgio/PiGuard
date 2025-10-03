@@ -9,6 +9,8 @@ from sqlmodel import select, text
 from sqlalchemy import func
 import uvicorn
 import asyncio, json, pathlib, os, sys, signal
+import secrets
+import hashlib
 
 from wids.common import load_config, setup_logging
 from wids.db     import get_engine, init_db, ensure_schema, session, Event, Alert, Log
@@ -26,6 +28,9 @@ _alert_poller_task = None
 _alert_poller_stop = asyncio.Event()
 _last_alert_id_for_sse = 0
 
+# Session store for authenticated users (username -> session_token)
+_active_sessions = {}  # session_token -> {'username': str, 'expires': datetime}
+
 # CORS for dev
 app.add_middleware(
     CORSMiddleware,
@@ -35,10 +40,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def require_key(x_api_key: Optional[str] = Header(None)):
+def require_key(x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    # Check session token first (from Authorization: Bearer <token>)
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+        session = _active_sessions.get(token)
+        if session and session['expires'] > datetime.utcnow():
+            return  # Valid session
+        # Clean up expired session
+        if token in _active_sessions:
+            del _active_sessions[token]
+
+    # Fallback to API key check for backward compatibility
     wanted = cfg.get("api", {}).get("api_key")
     if wanted and x_api_key != wanted:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+        raise HTTPException(status_code=401, detail="Invalid API key or session")
 
 def get_db():
     with session(engine) as s:
@@ -47,6 +63,72 @@ def get_db():
 @app.get("/api/health")
 def health():
     return {"status": "ok", "ts": datetime.utcnow().isoformat()+"Z"}
+
+@app.post("/api/login")
+async def login(request: Request):
+    """Authenticate user with username and password from config"""
+    try:
+        body = await request.json()
+        username = body.get("username", "").strip()
+        password = body.get("password", "").strip()
+
+        if not username or not password:
+            raise HTTPException(status_code=400, detail="Username and password required")
+
+        # Get credentials from config
+        api_config = cfg.get("api", {})
+        config_username = api_config.get("username", "admin")
+        config_password = api_config.get("password", "change-me")
+
+        # Validate credentials
+        if username != config_username or password != config_password:
+            # Log failed attempt
+            try:
+                _api_log("warn", f"failed login attempt for user: {username}")
+            except Exception:
+                pass
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+
+        # Generate session token
+        session_token = secrets.token_urlsafe(32)
+        expires = datetime.utcnow() + timedelta(hours=24)  # 24 hour session
+
+        _active_sessions[session_token] = {
+            'username': username,
+            'expires': expires
+        }
+
+        # Log successful login
+        try:
+            _api_log("info", f"successful login for user: {username}")
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "token": session_token,
+            "username": username,
+            "expires": expires.isoformat() + "Z"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
+
+@app.post("/api/logout")
+async def logout(authorization: Optional[str] = Header(None)):
+    """Logout and invalidate session token"""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+        if token in _active_sessions:
+            username = _active_sessions[token].get('username', 'unknown')
+            del _active_sessions[token]
+            try:
+                _api_log("info", f"logout for user: {username}")
+            except Exception:
+                pass
+            return {"ok": True, "message": "Logged out successfully"}
+    return {"ok": True, "message": "No active session"}
 
 @app.get("/api/overview", dependencies=[Depends(require_key)])
 def overview(db=Depends(get_db)):

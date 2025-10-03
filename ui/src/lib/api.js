@@ -5,6 +5,43 @@ const RUNTIME_BASE = (typeof window !== 'undefined' && window.location && window
   : 'http://localhost:8080/api'
 const API_BASE = (import.meta.env && import.meta.env.VITE_API_BASE) || RUNTIME_BASE
 
+// Authentication state management
+function _readAuthToken() {
+  try {
+    return (typeof window !== 'undefined') ? localStorage.getItem('authToken') : null
+  } catch {
+    return null
+  }
+}
+
+function _readUsername() {
+  try {
+    return (typeof window !== 'undefined') ? localStorage.getItem('username') : null
+  } catch {
+    return null
+  }
+}
+
+let AUTH_TOKEN = _readAuthToken()
+let USERNAME = _readUsername()
+
+export function isAuthenticated() {
+  return !!AUTH_TOKEN
+}
+
+export function getUsername() {
+  return USERNAME
+}
+
+export function clearAuth() {
+  AUTH_TOKEN = null
+  USERNAME = null
+  try {
+    localStorage.removeItem('authToken')
+    localStorage.removeItem('username')
+  } catch {}
+}
+
 // Allow runtime API key override via localStorage or URL param 'apikey'.
 function _readApiKey() {
   try {
@@ -29,7 +66,14 @@ export function setApiKey(key) {
 
 async function request(path, opts = {}) {
   const headers = opts.headers || {}
-  headers['X-Api-Key'] = API_KEY
+
+  // Add authentication header (token takes precedence over API key)
+  if (AUTH_TOKEN) {
+    headers['Authorization'] = `Bearer ${AUTH_TOKEN}`
+  } else {
+    headers['X-Api-Key'] = API_KEY
+  }
+
   if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
   const res = await fetch(`${API_BASE}${path}`, { ...opts, headers })
   let data = null
@@ -39,10 +83,50 @@ async function request(path, opts = {}) {
     data = null
   }
   if (!res.ok) {
+    // If 401, clear auth and let the app redirect to login
+    if (res.status === 401) {
+      clearAuth()
+    }
     const detail = data && (data.detail || data.error || data.message)
     throw new Error(detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`)
   }
   return data
+}
+
+export async function login(username, password) {
+  const res = await fetch(`${API_BASE}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  })
+  const data = await res.json()
+  if (!res.ok) {
+    const detail = data && (data.detail || data.error || data.message)
+    throw new Error(detail || 'Login failed')
+  }
+  // Store auth token and username
+  AUTH_TOKEN = data.token
+  USERNAME = data.username
+  try {
+    localStorage.setItem('authToken', AUTH_TOKEN)
+    localStorage.setItem('username', USERNAME)
+  } catch {}
+  return data
+}
+
+export async function logout() {
+  try {
+    if (AUTH_TOKEN) {
+      await fetch(`${API_BASE}/logout`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+      })
+    }
+  } catch {
+    // Ignore logout errors
+  } finally {
+    clearAuth()
+  }
 }
 
 export async function getOverview() {

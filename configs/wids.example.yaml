@@ -10,6 +10,9 @@ api:
   bind_host: "0.0.0.0"
   bind_port: 8080
   api_key: "change-me"
+  # Web UI authentication credentials
+  username: "admin"
+  password: "change-me"
 
 # Detection thresholds
 thresholds:
