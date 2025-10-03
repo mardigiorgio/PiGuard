@@ -172,7 +172,81 @@ preflight_checks() {
 }
 
 # =============================================================================
-# SECTION 2: INSTALLATION LOGIC
+# SECTION 2: UPDATE LOGIC
+# =============================================================================
+
+# Check if PiGuard is already installed
+check_existing_installation() {
+    if [[ -d "$APP_DIR" ]]; then
+        return 0  # Installation exists
+    fi
+    return 1  # No existing installation
+}
+
+# Backup current configuration before update
+backup_config() {
+    log "Backing up current configuration..."
+    local backup_dir="$DATA_DIR/backups/$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$backup_dir"
+
+    # Backup config file
+    if [[ -f "$CFG_DIR/wids.yaml" ]]; then
+        cp "$CFG_DIR/wids.yaml" "$backup_dir/wids.yaml"
+        log "✓ Configuration backed up to $backup_dir"
+    fi
+
+    # Backup database
+    if [[ -f "$DATA_DIR/db.sqlite" ]]; then
+        cp "$DATA_DIR/db.sqlite" "$backup_dir/db.sqlite"
+        log "✓ Database backed up to $backup_dir"
+    fi
+}
+
+# Update PiGuard installation
+update_piguard() {
+    log "Starting PiGuard update..."
+
+    # Check if installation exists
+    if ! check_existing_installation; then
+        error "No existing PiGuard installation found at $APP_DIR"
+        error "Please run a fresh installation instead."
+        exit 1
+    fi
+
+    # Backup current installation
+    backup_config
+
+    # Stop services
+    log "Stopping PiGuard services..."
+    systemctl stop piguard-api piguard-sensor piguard-sniffer 2>/dev/null || true
+
+    # Update code
+    log "Updating PiGuard code..."
+    sync_code
+
+    # Update Python environment
+    log "Updating Python dependencies..."
+    setup_python_env
+
+    # Rebuild UI
+    log "Rebuilding web interface..."
+    build_ui
+
+    # Restart services
+    log "Restarting PiGuard services..."
+    systemctl restart piguard-api piguard-sensor piguard-sniffer || true
+
+    log "✓ PiGuard update completed successfully!"
+    echo
+    info "Your configuration and database have been preserved."
+    info "Backup saved to: $DATA_DIR/backups/"
+    echo
+    local pi_ip=$(hostname -I | awk '{print $1}' 2>/dev/null || echo "localhost")
+    info "Access your PiGuard dashboard at: http://$pi_ip:8080"
+}
+
+# =============================================================================
+# SECTION 3: INSTALLATION LOGIC
 # =============================================================================
 
 # Install system packages
@@ -350,7 +424,7 @@ setup_config() {
 }
 
 # =============================================================================
-# SECTION 3: INTERACTIVE CONFIGURATION
+# SECTION 4: INTERACTIVE CONFIGURATION
 # =============================================================================
 
 # Enhanced Wi-Fi interface detection and setup
@@ -608,15 +682,19 @@ save_configuration() {
     local iface="$2"
     local api_key="$3"
     local ssid="$4"
+    local username="$5"
+    local password="$6"
 
     if [[ -x "$VENV/bin/python" ]]; then
-        "$VENV/bin/python" - "$cfg_path" "$iface" "$api_key" "$ssid" <<'PY'
+        "$VENV/bin/python" - "$cfg_path" "$iface" "$api_key" "$ssid" "$username" "$password" <<'PY'
 import sys, yaml
 try:
     cfg_path = sys.argv[1]
     iface = sys.argv[2]
     api_key = sys.argv[3]
     ssid = sys.argv[4]
+    username = sys.argv[5] if len(sys.argv) > 5 else ''
+    password = sys.argv[6] if len(sys.argv) > 6 else ''
 
     # Load existing config
     try:
@@ -633,6 +711,10 @@ try:
     doc.setdefault('api', {})
     if api_key:
         doc['api']['api_key'] = api_key
+    if username:
+        doc['api']['username'] = username
+    if password:
+        doc['api']['password'] = password
 
     doc.setdefault('defense', {})
     if ssid is not None:
@@ -665,6 +747,8 @@ get_current_config() {
         cur_iface=""
         cur_apikey=""
         cur_ssid=""
+        cur_username=""
+        cur_password=""
         return
     fi
 
@@ -689,6 +773,22 @@ import yaml, sys
 try:
     doc=yaml.safe_load(open(sys.argv[1],'r').read()) or {}
     print(((doc.get('defense') or {}).get('ssid') or ''))
+except: pass
+PY
+)"
+    cur_username="$($VENV/bin/python - "$cfg_path" <<'PY'
+import yaml, sys
+try:
+    doc=yaml.safe_load(open(sys.argv[1],'r').read()) or {}
+    print(((doc.get('api') or {}).get('username') or ''))
+except: pass
+PY
+)"
+    cur_password="$($VENV/bin/python - "$cfg_path" <<'PY'
+import yaml, sys
+try:
+    doc=yaml.safe_load(open(sys.argv[1],'r').read()) or {}
+    print(((doc.get('api') or {}).get('password') or ''))
 except: pass
 PY
 )"
@@ -725,9 +825,10 @@ run_interactive_config() {
     setup_wifi_interface "$cur_iface"
     setup_api_key "$cur_apikey"
     setup_defense_config "$cur_ssid"
+    setup_login_credentials "$cur_username" "$cur_password"
 
     # Save configuration
-    save_configuration "$CFG_DIR/wids.yaml" "${final_iface:-}" "${final_apikey:-}" "${final_ssid:-}"
+    save_configuration "$CFG_DIR/wids.yaml" "${final_iface:-}" "${final_apikey:-}" "${final_ssid:-}" "${final_login_username:-admin}" "${final_login_password:-change-me}"
 
     echo
     log "✓ Interactive configuration completed successfully!"
@@ -745,8 +846,86 @@ run_interactive_config() {
     fi
 }
 
+# Setup login credentials
+setup_login_credentials() {
+    local current_username="$1"
+    local current_password="$2"
+
+    if [[ "${INTERACTIVE:-0}" -eq 0 && "${GUIDED_MODE:-0}" -eq 0 ]]; then
+        # Generate secure random password for non-interactive mode
+        if command -v openssl >/dev/null 2>&1; then
+            final_login_username="admin"
+            final_login_password=$(openssl rand -base64 12)
+        else
+            final_login_username="admin"
+            final_login_password="change-me"
+        fi
+        return 0
+    fi
+
+    echo
+    echo "═══ Web UI Login Setup ═══"
+
+    if [[ "${GUIDED_MODE:-}" == "1" ]]; then
+        info "PiGuard web interface requires login credentials for security."
+        info "These credentials are separate from the API key and provide user authentication."
+        echo
+    fi
+
+    if [[ -n "$current_username" && "$current_username" != "admin" ]]; then
+        info "Current username: $current_username"
+        read -p "Keep current username? [Y/n]: " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Nn]$ ]]; then
+            read -p "Enter new username: " final_login_username
+            final_login_username="${final_login_username:-admin}"
+        else
+            final_login_username="$current_username"
+        fi
+    else
+        read -p "Enter username for web UI login [admin]: " final_login_username
+        final_login_username="${final_login_username:-admin}"
+    fi
+
+    if [[ -n "$current_password" && "$current_password" != "change-me" ]]; then
+        read -p "Change current password? [y/N]: " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            read -s -p "Enter new password: " final_login_password
+            echo
+            read -s -p "Confirm password: " password_confirm
+            echo
+            if [[ "$final_login_password" != "$password_confirm" ]]; then
+                warn "Passwords do not match. Using secure random password."
+                final_login_password=$(openssl rand -base64 12 2>/dev/null || echo "change-me-$(date +%s)")
+            fi
+        else
+            final_login_password="$current_password"
+        fi
+    else
+        read -s -p "Enter password for web UI login: " final_login_password
+        echo
+        read -s -p "Confirm password: " password_confirm
+        echo
+        if [[ "$final_login_password" != "$password_confirm" ]]; then
+            warn "Passwords do not match. Using secure random password."
+            final_login_password=$(openssl rand -base64 12 2>/dev/null || echo "change-me-$(date +%s)")
+        fi
+    fi
+
+    log "✓ Login credentials configured"
+    info "Username: $final_login_username"
+    if [[ "${GUIDED_MODE:-}" == "1" ]]; then
+        echo
+        info "You'll use these credentials to log into the PiGuard web interface."
+        info "Store them securely - you can change them later in the config file."
+        echo
+        read -p "Press Enter to continue..." -r
+    fi
+}
+
 # =============================================================================
-# SECTION 4: POST-INSTALLATION AND FINALIZATION
+# SECTION 5: POST-INSTALLATION AND FINALIZATION
 # =============================================================================
 
 # Post-installation validation and health checks
@@ -841,6 +1020,7 @@ show_usage() {
     echo "  --guided      Interactive installation with explanations"
     echo "  --advanced    Full control over installation options"
     echo "  --headless    Silent installation for remote deployment"
+    echo "  --update      Update existing PiGuard installation"
     echo
     echo "Options:"
     echo "  --repo URL    Clone from custom repository URL"
@@ -851,6 +1031,7 @@ show_usage() {
     echo "  $0                    # Express installation"
     echo "  $0 --guided          # Guided interactive installation"
     echo "  $0 --headless        # Silent installation"
+    echo "  $0 --update          # Update existing installation"
 }
 
 # =============================================================================
@@ -859,6 +1040,7 @@ show_usage() {
 
 install_piguard() {
     # Parse command line arguments
+    local UPDATE_MODE=0
     while [[ $# -gt 0 ]]; do
         case $1 in
             --express)
@@ -875,6 +1057,10 @@ install_piguard() {
                 ;;
             --headless)
                 INSTALL_MODE="headless"
+                shift
+                ;;
+            --update)
+                UPDATE_MODE=1
                 shift
                 ;;
             --repo)
@@ -896,6 +1082,62 @@ install_piguard() {
                 ;;
         esac
     done
+
+    # If --update flag is set, run update instead of install
+    if [[ $UPDATE_MODE -eq 1 ]]; then
+        banner
+        echo
+        log "🔄 Starting PiGuard update..."
+        echo
+        # Determine work directory for update
+        if [[ -f "pyproject.toml" && -f "src/wids/__init__.py" ]]; then
+            export SRC_DIR="$(pwd)"
+        else
+            # Create temporary directory and clone
+            TEMP_DIR=$(mktemp -d)
+            trap "rm -rf $TEMP_DIR" EXIT
+            log "Downloading latest PiGuard from $REPO..."
+            git clone --depth 1 --branch "$BRANCH" "$REPO" "$TEMP_DIR" || {
+                error "Failed to clone repository"
+                exit 100
+            }
+            cd "$TEMP_DIR"
+            export SRC_DIR="$TEMP_DIR"
+        fi
+        update_piguard
+        exit 0
+    fi
+
+    # Check if PiGuard is already installed and prompt to update
+    if check_existing_installation; then
+        warn "PiGuard is already installed at $APP_DIR"
+        echo
+        read -p "Would you like to update the existing installation? [Y/n]: " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            log "Switching to update mode..."
+            # Determine work directory for update
+            if [[ -f "pyproject.toml" && -f "src/wids/__init__.py" ]]; then
+                export SRC_DIR="$(pwd)"
+            else
+                # Create temporary directory and clone
+                TEMP_DIR=$(mktemp -d)
+                trap "rm -rf $TEMP_DIR" EXIT
+                log "Downloading latest PiGuard from $REPO..."
+                git clone --depth 1 --branch "$BRANCH" "$REPO" "$TEMP_DIR" || {
+                    error "Failed to clone repository"
+                    exit 100
+                }
+                cd "$TEMP_DIR"
+                export SRC_DIR="$TEMP_DIR"
+            fi
+            update_piguard
+            exit 0
+        else
+            warn "Continuing with fresh installation (will overwrite existing installation)..."
+            echo
+        fi
+    fi
 
     log "Starting PiGuard installation in $INSTALL_MODE mode..."
 
@@ -1009,6 +1251,6 @@ main() {
 }
 
 # Run main function if script is executed directly
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
     main "$@"
 fi
