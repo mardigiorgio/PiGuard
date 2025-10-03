@@ -39,6 +39,7 @@ sudo ./install.sh
 - `--guided` - Step-by-step with explanations
 - `--advanced` - Full control over all options
 - `--headless` - Silent installation for remote setup
+- `--update` - Update existing PiGuard installation
 
 **For detailed installation guide:** [INSTALL.md](INSTALL.md)
 **Quick start guide:** [GETTING_STARTED.md](GETTING_STARTED.md)
@@ -64,7 +65,13 @@ sudo ./install.sh
 
 ## Web Interface
 
-After installation, visit `http://YOUR_PI_IP:8080` to access the web interface:
+After installation, visit `http://YOUR_PI_IP:8080` to access the web interface.
+
+**Login:**
+- You'll be prompted to login with credentials configured during installation
+- Default username: `admin`
+- Password: Set during installation or found in `/etc/piguard/wids.yaml`
+- Sessions last 24 hours
 
 **Main tabs:**
 - **Overview** - See what's happening on your network right now
@@ -73,6 +80,27 @@ After installation, visit `http://YOUR_PI_IP:8080` to access the web interface:
 - **Device** - Manage Wi-Fi interfaces and channel settings
 - **Settings** - Adjust detection sensitivity
 - **Logs** - View detailed system logs
+
+## Updating PiGuard
+
+To update an existing installation to the latest version:
+
+```bash
+# Update with automatic backup
+sudo ./install.sh --update
+
+# Or via one-line command
+curl -sSL https://raw.githubusercontent.com/mardigiorgio/PiGuard/main/install.sh | sudo bash -s -- --update
+```
+
+The update process will:
+- Automatically back up your configuration and database
+- Update to the latest code
+- Rebuild dependencies and web interface
+- Restart services
+- Preserve all your settings
+
+Backups are stored in `/var/lib/piguard/backups/`
 
 ## Managing PiGuard
 
@@ -103,6 +131,8 @@ journalctl -u piguard-sensor -f
 Main config file: `/etc/piguard/wids.yaml`
 
 **Key settings you might want to change:**
+- `api.username` / `api.password`: Web UI login credentials
+- `api.api_key`: API authentication key (for backward compatibility)
 - `capture.iface`: Which Wi-Fi interface to monitor (e.g., `wlan0mon`)
 - `defense.ssid`: Your Wi-Fi network name to protect
 - `thresholds.deauth`: How sensitive the detection should be
@@ -130,7 +160,8 @@ Most settings can be changed through the web interface - no need to edit files m
 | Problem | Solution |
 |---------|----------|
 | Can't access web interface | Check `sudo systemctl status piguard-api` |
-| "HTTP 401 Unauthorized" | Check API key in `/etc/piguard/wids.yaml` |
+| Login fails | Verify username/password in `/etc/piguard/wids.yaml` |
+| "HTTP 401 Unauthorized" | Your session may have expired, login again |
 | No packets being captured | Make sure Wi-Fi interface supports monitor mode |
 | Services keep crashing | Check logs with `journalctl -u piguard-sniffer -f` |
 

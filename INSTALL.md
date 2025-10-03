@@ -42,6 +42,26 @@ Install without any prompts (good for remote Pis):
 curl -sSL https://raw.githubusercontent.com/mardigiorgio/PiGuard/main/install.sh | sudo bash --headless
 ```
 
+### Update Mode
+Update an existing PiGuard installation to the latest version:
+```bash
+curl -sSL https://raw.githubusercontent.com/mardigiorgio/PiGuard/main/install.sh | sudo bash -s -- --update
+```
+
+Or from a local repository:
+```bash
+cd PiGuard
+sudo ./install.sh --update
+```
+
+The update process will:
+- Automatically back up your configuration and database to `/var/lib/piguard/backups/`
+- Download the latest code
+- Update Python dependencies
+- Rebuild the web interface
+- Restart all services
+- Preserve all your settings and data
+
 ---
 
 ## What You Need
@@ -105,7 +125,8 @@ During installation, you will configure:
 - Interface state management
 
 #### Security Configuration
-- Automatic generation of cryptographically secure API keys
+- **Web UI Login Credentials** - Set username and password for web interface access
+- **API Key Generation** - Automatic generation of cryptographically secure API keys (for backward compatibility)
 - Service permission configuration
 - Network access controls
 
@@ -130,9 +151,13 @@ During installation, you will configure:
    http://YOUR_PI_IP:8080
    ```
 
-3. **Authenticate using the API key** displayed during installation or found in:
+3. **Login with your credentials:**
+   - **Username**: Set during installation (default: `admin`)
+   - **Password**: Set during installation or found in `/etc/piguard/wids.yaml`
+
+   To view your credentials:
    ```bash
-   sudo cat /etc/piguard/wids.yaml | grep api_key
+   sudo cat /etc/piguard/wids.yaml | grep -A2 "api:"
    ```
 
 ### Configure System
@@ -292,19 +317,20 @@ If issues persist after troubleshooting:
 - **Verify installer integrity** before execution
 - **Use dedicated Raspberry Pi** for PiGuard when possible
 - **Keep system packages updated** regularly
-- **Use strong passwords** for system accounts
+- **Use strong passwords** for system accounts and web UI login
 
 ### Network Security
-- **Change default API keys** after installation
+- **Change default credentials** after installation (`username` and `password` in `/etc/piguard/wids.yaml`)
+- **Use strong, unique passwords** for web UI authentication
 - **Deploy on isolated network** segments when feasible
 - **Monitor access logs** for unauthorized attempts
 - **Configure firewall rules** appropriately
 
 ### Operational Security
-- **Regular backup** of configuration and data
+- **Regular backup** of configuration and data (automatic backups created during updates)
 - **Monitor system resources** and performance
 - **Review alert configurations** periodically
-- **Update PiGuard** when new versions are available
+- **Update PiGuard** when new versions are available using `--update` mode
 
 ---
 
