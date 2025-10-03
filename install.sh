@@ -1250,7 +1250,7 @@ main() {
     install_piguard "$@"
 }
 
-# Run main function if script is executed directly
-if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
+# Run main function if script is executed directly or piped to bash
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]] || [[ "${0}" == "bash" ]] || [[ "${0}" == "-bash" ]]; then
     main "$@"
 fi
