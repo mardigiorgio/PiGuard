@@ -424,12 +424,37 @@ def run_sniffer(
                 band, ch = plan[idx % len(plan)]
                 idx += 1
                 freq = _chan_to_freq(band, ch)
-                cmd = ["iw", "dev", iface, "set", "freq", str(freq)] if freq else ["iw", "dev", iface, "set", "channel", str(ch)]
+
+                # Use frequency with HT20 for more reliable channel changes during active capture
+                # HT20 explicitly specifies 20MHz channel width which works better than implicit
+                if freq:
+                    cmd = ["iw", "dev", iface, "set", "freq", str(freq), "HT20"]
+                else:
+                    cmd = ["iw", "dev", iface, "set", "channel", str(ch)]
 
                 # Execute channel change and capture result
                 result = None
                 try:
                     result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+
+                    # If channel change failed, mark it as disabled and remove from plan
+                    if result.returncode != 0:
+                        err_lower = result.stderr.lower()
+                        if "disabled" in err_lower or "not allowed" in err_lower or "invalid argument" in err_lower:
+                            # Channel is disabled by regulatory domain - remove it from plan
+                            if (band, ch) in plan:
+                                plan.remove((band, ch))
+                                last_plan = list(plan)  # Update cached plan
+                                try:
+                                    with session(engine) as db:
+                                        db.add(Log(ts=datetime.utcnow(), source="sniffer", level="warn",
+                                                 message=f"channel {ch} ({band}GHz) disabled by regulatory domain, removing from plan"))
+                                        db.commit()
+                                except Exception:
+                                    pass
+                            # Skip to next channel immediately
+                            continue
+
                 except Exception as e:
                     # Log channel change failures
                     try:
@@ -439,13 +464,11 @@ def run_sniffer(
                     except Exception:
                         pass
 
-                # Log channel hops more frequently for visibility (every 10 hops instead of just idx=1)
-                if idx % max(10, len(plan)) == 1 or (result and result.returncode != 0):
+                # Log successful channel hops occasionally (every 20 hops)
+                if result and result.returncode == 0 and idx % 20 == 1:
                     try:
                         with session(engine) as db:
-                            msg = f"hop step mode={_plan_src} band={band} ch={ch} plan_sz={len(plan)}"
-                            if result and result.returncode != 0:
-                                msg += f" rc={result.returncode} err={result.stderr.strip()[:100]}"
+                            msg = f"hop OK mode={_plan_src} band={band} ch={ch} freq={freq} plan_sz={len(plan)}"
                             db.add(Log(ts=datetime.utcnow(), source="sniffer", level="info", message=msg))
                             db.commit()
                     except Exception:
