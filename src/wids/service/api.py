@@ -614,10 +614,24 @@ def _iface_info(dev: str) -> dict:
         m = re.search(r"\btype\s+(\S+)", out)
         if m:
             info["type"] = m.group(1)
-        m = re.search(r"\bchannel\s+(\d+).*?\((\d+)\s+MHz\)", out)
+        # Try to extract channel - monitor mode may show "channel X (YYYY MHz)" or just frequency
+        m = re.search(r"\bchannel\s+(\d+)\s+\((\d+)\s+MHz", out, re.IGNORECASE)
         if m:
             info["channel"] = int(m.group(1))
             info["freq"] = int(m.group(2))
+        else:
+            # Fallback: look for frequency only and derive channel
+            m = re.search(r"\((\d{4,5})\s+MHz", out)
+            if m:
+                freq = int(m.group(1))
+                info["freq"] = freq
+                # Derive channel from frequency
+                if 2412 <= freq <= 2484:
+                    info["channel"] = (freq - 2407) // 5
+                elif 5000 <= freq <= 5900:
+                    info["channel"] = (freq - 5000) // 5
+                elif 5955 <= freq <= 7115:
+                    info["channel"] = ((freq - 5955) // 5) + 1
     return info
 
 def _api_log(level: str, msg: str):

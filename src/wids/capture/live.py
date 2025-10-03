@@ -425,15 +425,28 @@ def run_sniffer(
                 idx += 1
                 freq = _chan_to_freq(band, ch)
                 cmd = ["iw", "dev", iface, "set", "freq", str(freq)] if freq else ["iw", "dev", iface, "set", "channel", str(ch)]
+
+                # Execute channel change and capture result
+                result = None
                 try:
-                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except Exception:
-                    pass
-                # Optional: log occasionally
-                if idx % len(plan) == 1:
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+                except Exception as e:
+                    # Log channel change failures
                     try:
                         with session(engine) as db:
-                            db.add(Log(ts=datetime.utcnow(), source="sniffer", level="info", message=f"hop step mode={_plan_src} band={band} ch={ch} plan_sz={len(plan)}"))
+                            db.add(Log(ts=datetime.utcnow(), source="sniffer", level="error", message=f"hop failed: {e} cmd={' '.join(cmd)}"))
+                            db.commit()
+                    except Exception:
+                        pass
+
+                # Log channel hops more frequently for visibility (every 10 hops instead of just idx=1)
+                if idx % max(10, len(plan)) == 1 or (result and result.returncode != 0):
+                    try:
+                        with session(engine) as db:
+                            msg = f"hop step mode={_plan_src} band={band} ch={ch} plan_sz={len(plan)}"
+                            if result and result.returncode != 0:
+                                msg += f" rc={result.returncode} err={result.stderr.strip()[:100]}"
+                            db.add(Log(ts=datetime.utcnow(), source="sniffer", level="info", message=msg))
                             db.commit()
                     except Exception:
                         pass
