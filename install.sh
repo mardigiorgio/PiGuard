@@ -1222,34 +1222,35 @@ install_piguard() {
 main() {
     banner
 
+    # Reopen stdin from terminal if piped (for interactive prompts to work)
+    if [[ ! -t 0 ]]; then
+        exec < /dev/tty || {
+            warn "Cannot open terminal for input, forcing headless mode"
+            set -- --headless
+        }
+    fi
+
     # Show installation mode selection if no arguments
     if [[ $# -eq 0 ]]; then
-        # Check if running from pipe (stdin is not a terminal)
-        if [[ ! -t 0 ]]; then
-            # Default to express mode when piped
-            log "No installation mode specified, defaulting to express mode"
-            set -- --express
-        else
-            echo "Select installation mode:"
-            echo "1) Express - Quick setup with optimal defaults (recommended)"
-            echo "2) Guided - Step-by-step with explanations"
-            echo "3) Advanced - Full control over options"
-            echo "4) Headless - Silent installation"
-            echo
-            read -p "Choose installation mode [1-4]: " -n 1 -r
-            echo
+        echo "Select installation mode:"
+        echo "1) Express - Quick setup with optimal defaults (recommended)"
+        echo "2) Guided - Step-by-step with explanations"
+        echo "3) Advanced - Full control over options"
+        echo "4) Headless - Silent installation"
+        echo
+        read -p "Choose installation mode [1-4]: " -n 1 -r
+        echo
 
-            case $REPLY in
-                1|"") set -- --express ;;
-                2) set -- --guided ;;
-                3) set -- --advanced ;;
-                4) set -- --headless ;;
-                *)
-                    error "Invalid selection"
-                    exit 1
-                    ;;
-            esac
-        fi
+        case $REPLY in
+            1|"") set -- --express ;;
+            2) set -- --guided ;;
+            3) set -- --advanced ;;
+            4) set -- --headless ;;
+            *)
+                error "Invalid selection"
+                exit 1
+                ;;
+        esac
     fi
 
     need_root
