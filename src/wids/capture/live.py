@@ -454,6 +454,20 @@ def run_sniffer(
                                     pass
                             # Skip to next channel immediately
                             continue
+                    else:
+                        # Successful channel change - write current channel to state file for API to read
+                        try:
+                            import json
+                            state_file = "/tmp/piguard_channel_state.json"
+                            with open(state_file, 'w') as f:
+                                json.dump({
+                                    "channel": ch,
+                                    "freq": freq,
+                                    "band": band,
+                                    "timestamp": datetime.utcnow().isoformat() + "Z"
+                                }, f)
+                        except Exception:
+                            pass
 
                 except Exception as e:
                     # Log channel change failures

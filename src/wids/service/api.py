@@ -601,7 +601,7 @@ def _parse_iw_dev_list(stdout: str) -> list[dict]:
     return out
 
 def _iface_info(dev: str) -> dict:
-    info = {"dev": dev, "exists": False, "up": None, "type": None, "channel": None, "freq": None}
+    info = {"dev": dev, "exists": False, "up": None, "type": None, "channel": None, "freq": None, "band": None}
     # ip link
     rc, out, _ = _run(["ip", "link", "show", dev])
     if rc != 0:
@@ -628,10 +628,30 @@ def _iface_info(dev: str) -> dict:
                 # Derive channel from frequency
                 if 2412 <= freq <= 2484:
                     info["channel"] = (freq - 2407) // 5
+                    info["band"] = "2.4"
                 elif 5000 <= freq <= 5900:
                     info["channel"] = (freq - 5000) // 5
+                    info["band"] = "5"
                 elif 5955 <= freq <= 7115:
                     info["channel"] = ((freq - 5955) // 5) + 1
+                    info["band"] = "6"
+
+    # If channel hopping is active, try to read from state file (more accurate for hopping interfaces)
+    if info["type"] == "monitor":
+        try:
+            import json, os, time
+            state_file = "/tmp/piguard_channel_state.json"
+            if os.path.exists(state_file):
+                # Only use if file is recent (within 5 seconds)
+                if time.time() - os.path.getmtime(state_file) < 5:
+                    with open(state_file, 'r') as f:
+                        state = json.load(f)
+                        info["channel"] = state.get("channel")
+                        info["freq"] = state.get("freq")
+                        info["band"] = state.get("band")
+        except Exception:
+            pass
+
     return info
 
 def _api_log(level: str, msg: str):
