@@ -109,7 +109,11 @@
         const ch = parseInt(lockChan)
         if (!isNaN(ch)) {
           body.hop.lock_channel = ch
-          await postChannel({ dev, channel: ch })
+          // Don't manually set channel - let the hopper handle it when enabled
+          // Only set manually if hopping is disabled
+          if (!hopEnabled) {
+            await postChannel({ dev, channel: ch })
+          }
           msg = `Locked to channel ${ch}.`
         }
       } else if (hopMode === 'list') {

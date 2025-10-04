@@ -825,6 +825,15 @@ async def set_channel(request: Request):
     ch = (body or {}).get("channel")
     if not dev or not ch:
         raise HTTPException(status_code=400, detail="dev and channel required")
+
+    # Check if channel hopping is enabled - if so, reject manual channel change
+    hop_cfg = (cfg.get("capture", {}) or {}).get("hop", {})
+    if hop_cfg.get("enabled", False):
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot manually set channel while hopping is enabled. Disable hopping in capture settings first."
+        )
+
     ch = int(ch)
     # First try set channel
     rc, out, err = _sudo(["iw", "dev", dev, "set", "channel", str(ch)])

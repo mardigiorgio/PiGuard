@@ -434,14 +434,17 @@ def run_sniffer(
 
                 # Execute channel change and capture result
                 result = None
+                channel_changed = False
                 try:
                     result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
 
-                    # If channel change failed, mark it as disabled and remove from plan
-                    if result.returncode != 0:
+                    # Check if channel change succeeded
+                    if result.returncode == 0:
+                        channel_changed = True
+                    elif result.returncode != 0:
                         err_lower = result.stderr.lower()
+                        # Handle regulatory domain issues by removing from plan
                         if "disabled" in err_lower or "not allowed" in err_lower or "invalid argument" in err_lower:
-                            # Channel is disabled by regulatory domain - remove it from plan
                             if (band, ch) in plan:
                                 plan.remove((band, ch))
                                 last_plan = list(plan)  # Update cached plan
@@ -454,20 +457,20 @@ def run_sniffer(
                                     pass
                             # Skip to next channel immediately
                             continue
-                    else:
-                        # Successful channel change - write current channel to state file for API to read
-                        try:
-                            import json
-                            state_file = "/tmp/piguard_channel_state.json"
-                            with open(state_file, 'w') as f:
-                                json.dump({
-                                    "channel": ch,
-                                    "freq": freq,
-                                    "band": band,
-                                    "timestamp": datetime.utcnow().isoformat() + "Z"
-                                }, f)
-                        except Exception:
-                            pass
+                        # For "device busy" errors, channel might still have changed - check with iw
+                        elif "busy" in err_lower or "resource busy" in err_lower:
+                            # Device busy doesn't mean channel didn't change - verify current channel
+                            try:
+                                check_result = subprocess.run(["iw", "dev", iface, "info"],
+                                                            capture_output=True, text=True, timeout=1)
+                                if check_result.returncode == 0:
+                                    import re
+                                    # Look for current frequency in output
+                                    m = re.search(r"channel\s+(\d+).*?\((\d+)\s+MHz", check_result.stdout, re.IGNORECASE)
+                                    if m and int(m.group(1)) == ch:
+                                        channel_changed = True  # Channel actually did change despite error
+                            except Exception:
+                                pass
 
                 except Exception as e:
                     # Log channel change failures
@@ -478,8 +481,52 @@ def run_sniffer(
                     except Exception:
                         pass
 
+                # Write current channel state if change succeeded (or likely succeeded)
+                if channel_changed:
+                    try:
+                        import json
+                        state_file = "/tmp/piguard_channel_state.json"
+                        state_data = {
+                            "channel": ch,
+                            "freq": freq,
+                            "band": band,
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "iface": iface
+                        }
+                        with open(state_file, 'w') as f:
+                            json.dump(state_data, f)
+                        # Log first successful state write for verification
+                        if not hasattr(_hop_loop, '_state_written'):
+                            _hop_loop._state_written = True  # type: ignore
+                            try:
+                                with session(engine) as db:
+                                    db.add(Log(ts=datetime.utcnow(), source="sniffer", level="info",
+                                             message=f"channel state tracking started: {state_file}"))
+                                    db.commit()
+                            except Exception:
+                                pass
+                    except Exception as write_err:
+                        # Log state file write errors
+                        try:
+                            with session(engine) as db:
+                                db.add(Log(ts=datetime.utcnow(), source="sniffer", level="error",
+                                         message=f"failed to write channel state: {write_err}"))
+                                db.commit()
+                        except Exception:
+                            pass
+                else:
+                    # Log why channel didn't change (debug)
+                    if result and idx % 10 == 0:  # Log occasionally to avoid spam
+                        try:
+                            with session(engine) as db:
+                                db.add(Log(ts=datetime.utcnow(), source="sniffer", level="debug",
+                                         message=f"channel hop attempt ch={ch} rc={result.returncode if result else 'N/A'} changed={channel_changed}"))
+                                db.commit()
+                        except Exception:
+                            pass
+
                 # Log successful channel hops occasionally (every 20 hops)
-                if result and result.returncode == 0 and idx % 20 == 1:
+                if channel_changed and idx % 20 == 1:
                     try:
                         with session(engine) as db:
                             msg = f"hop OK mode={_plan_src} band={band} ch={ch} freq={freq} plan_sz={len(plan)}"
