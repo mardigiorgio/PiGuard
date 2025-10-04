@@ -428,21 +428,23 @@ def run_sniffer(
                 # Use frequency with HT20 for more reliable channel changes during active capture
                 # HT20 explicitly specifies 20MHz channel width which works better than implicit
                 if freq:
-                    cmd = ["iw", "dev", iface, "set", "freq", str(freq), "HT20"]
+                    cmd = ["/usr/sbin/iw", "dev", iface, "set", "freq", str(freq), "HT20"]
                 else:
-                    cmd = ["iw", "dev", iface, "set", "channel", str(ch)]
+                    cmd = ["/usr/sbin/iw", "dev", iface, "set", "channel", str(ch)]
 
                 # Execute channel change and capture result
+                # Strategy: Try standard method first, fall back to bringing interface down if needed
                 result = None
                 channel_changed = False
                 try:
+                    # Try to change channel while interface is up (preferred method)
                     result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
 
                     # Check if channel change succeeded
                     if result.returncode == 0:
                         channel_changed = True
                     elif result.returncode != 0:
-                        err_lower = result.stderr.lower()
+                        err_lower = result.stderr.lower() if result.stderr else ""
                         # Handle regulatory domain issues by removing from plan
                         if "disabled" in err_lower or "not allowed" in err_lower or "invalid argument" in err_lower:
                             if (band, ch) in plan:
@@ -457,20 +459,24 @@ def run_sniffer(
                                     pass
                             # Skip to next channel immediately
                             continue
-                        # For "device busy" errors, channel might still have changed - check with iw
+                        # For "device busy" errors, try bringing interface down briefly
                         elif "busy" in err_lower or "resource busy" in err_lower:
-                            # Device busy doesn't mean channel didn't change - verify current channel
                             try:
-                                check_result = subprocess.run(["iw", "dev", iface, "info"],
-                                                            capture_output=True, text=True, timeout=1)
-                                if check_result.returncode == 0:
-                                    import re
-                                    # Look for current frequency in output
-                                    m = re.search(r"channel\s+(\d+).*?\((\d+)\s+MHz", check_result.stdout, re.IGNORECASE)
-                                    if m and int(m.group(1)) == ch:
-                                        channel_changed = True  # Channel actually did change despite error
+                                # Brief down/channel/up sequence - this is how airodump-ng does it
+                                subprocess.run(["/usr/sbin/ip", "link", "set", iface, "down"], timeout=1, check=False)
+                                time.sleep(0.05)  # 50ms settle time
+                                result2 = subprocess.run(cmd, capture_output=True, text=True, timeout=1)
+                                subprocess.run(["/usr/sbin/ip", "link", "set", iface, "up"], timeout=1, check=False)
+
+                                if result2.returncode == 0:
+                                    channel_changed = True
+                                    result = result2  # Update result for logging
                             except Exception:
-                                pass
+                                # Ensure interface is back up even if channel change failed
+                                try:
+                                    subprocess.run(["/usr/sbin/ip", "link", "set", iface, "up"], timeout=1, check=False)
+                                except Exception:
+                                    pass
 
                 except Exception as e:
                     # Log channel change failures
@@ -556,7 +562,7 @@ def run_sniffer(
         Only treats explicit DOWN as unavailable.
         """
         try:
-            res = subprocess.run(["ip", "-br", "link", "show", name], capture_output=True, text=True)
+            res = subprocess.run(["/usr/sbin/ip", "-br", "link", "show", name], capture_output=True, text=True)
             if res.returncode == 0 and res.stdout:
                 out = f" {res.stdout.strip()} ".upper()
                 # Consider anything that's not explicitly DOWN as usable (UNKNOWN is OK in monitor mode)
@@ -567,7 +573,7 @@ def run_sniffer(
             pass
         # Fallback: parse verbose ip link output
         try:
-            res = subprocess.run(["ip", "link", "show", name], capture_output=True, text=True)
+            res = subprocess.run(["/usr/sbin/ip", "link", "show", name], capture_output=True, text=True)
             if res.returncode != 0:
                 return False
             out = res.stdout
