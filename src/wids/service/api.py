@@ -603,13 +603,13 @@ def _parse_iw_dev_list(stdout: str) -> list[dict]:
 def _iface_info(dev: str) -> dict:
     info = {"dev": dev, "exists": False, "up": None, "type": None, "channel": None, "freq": None, "band": None}
     # ip link
-    rc, out, _ = _run(["ip", "link", "show", dev])
+    rc, out, _ = _run(["/usr/sbin/ip", "link", "show", dev])
     if rc != 0:
         return info
     info["exists"] = True
     info["up"] = ("state UP" in out) or ("UP,LOWER_UP" in out) or ("<BROADCAST,MULTICAST,UP" in out)
     # iw info
-    rc, out, _ = _run(["iw", "dev", dev, "info"])
+    rc, out, _ = _run(["/usr/sbin/iw", "dev", dev, "info"])
     if rc == 0:
         m = re.search(r"\btype\s+(\S+)", out)
         if m:
@@ -663,14 +663,14 @@ def _api_log(level: str, msg: str):
         pass
 
 def _iface_has_ip(dev: str) -> bool:
-    rc, out, _ = _run(["ip", "-br", "addr", "show", dev])
+    rc, out, _ = _run(["/usr/sbin/ip", "-br", "addr", "show", dev])
     if rc != 0:
         return False
     return " inet " in f" {out} "
 
 @app.get("/api/ifaces", dependencies=[Depends(require_key)])
 def list_ifaces():
-    rc, out, err = _run(["iw", "dev"])
+    rc, out, err = _run(["/usr/sbin/iw", "dev"])
     if rc != 0:
         raise HTTPException(status_code=500, detail=f"iw dev failed: {err or rc}")
     return _parse_iw_dev_list(out)
@@ -741,12 +741,12 @@ async def set_monitor_mode(request: Request):
         return rc, (err or "").lower()
 
     steps = [
-        ["ip", "link", "set", dev, "down"],
-        ["iw", "dev", dev, "set", "type", "monitor"],
+        ["/usr/sbin/ip", "link", "set", dev, "down"],
+        ["/usr/sbin/iw", "dev", dev, "set", "type", "monitor"],
     ]
     if ch:
-        steps.append(["iw", "dev", dev, "set", "channel", str(ch)])
-    steps.append(["ip", "link", "set", dev, "up"])
+        steps.append(["/usr/sbin/iw", "dev", dev, "set", "channel", str(ch)])
+    steps.append(["/usr/sbin/ip", "link", "set", dev, "up"])
 
     failed_detail = None
     for c in steps:
@@ -754,7 +754,7 @@ async def set_monitor_mode(request: Request):
         if rc != 0:
             # Best-effort bring iface up before returning error
             try:
-                _sudo(["ip", "link", "set", dev, "up"])
+                _sudo(["/usr/sbin/ip", "link", "set", dev, "up"])
             except Exception:
                 pass
             msg = " ".join(c)
@@ -789,18 +789,18 @@ async def create_monitor_iface(request: Request):
     # Propose a name if not given
     if not new_name:
         candidates = [f"{base}mon", f"{base}mon0", f"{base}mon1"]
-        existing = {i.get("name") for i in _parse_iw_dev_list(_run(["iw", "dev"])[1])}
+        existing = {i.get("name") for i in _parse_iw_dev_list(_run(["/usr/sbin/iw", "dev"])[1])}
         new_name = next((c for c in candidates if c not in existing), f"{base}mon")
 
     # Create monitor interface
-    rc, _, err = _sudo(["iw", "dev", base, "interface", "add", new_name, "type", "monitor"])
+    rc, _, err = _sudo(["/usr/sbin/iw", "dev", base, "interface", "add", new_name, "type", "monitor"])
     if rc != 0:
         raise HTTPException(status_code=500, detail=f"failed to add monitor interface: {err or rc}")
     # Set channel if provided (best-effort)
     if ch:
-        _sudo(["iw", "dev", new_name, "set", "channel", str(int(ch))])
+        _sudo(["/usr/sbin/iw", "dev", new_name, "set", "channel", str(int(ch))])
     # Bring up
-    rc, _, err = _sudo(["ip", "link", "set", new_name, "up"])
+    rc, _, err = _sudo(["/usr/sbin/ip", "link", "set", new_name, "up"])
     if rc != 0:
         raise HTTPException(status_code=500, detail=f"failed to bring up {new_name}: {err or rc}")
 
@@ -836,8 +836,8 @@ async def set_channel(request: Request):
 
     ch = int(ch)
     # First try set channel
-    rc, out, err = _sudo(["iw", "dev", dev, "set", "channel", str(ch)])
-    attempted = [["iw", "dev", dev, "set", "channel", str(ch), f"rc={rc}", err or ""]]
+    rc, out, err = _sudo(["/usr/sbin/iw", "dev", dev, "set", "channel", str(ch)])
+    attempted = [["/usr/sbin/iw", "dev", dev, "set", "channel", str(ch), f"rc={rc}", err or ""]]
     # Fallbacks: set freq for 2.4/5/6 GHz
     if rc != 0:
         candidates = []
@@ -848,8 +848,8 @@ async def set_channel(request: Request):
         except Exception:
             candidates = []
         for f in candidates:
-            rc2, out2, err2 = _sudo(["iw", "dev", dev, "set", "freq", str(int(f))])
-            attempted.append(["iw", "dev", dev, "set", "freq", str(int(f)), f"rc={rc2}", err2 or ""])
+            rc2, out2, err2 = _sudo(["/usr/sbin/iw", "dev", dev, "set", "freq", str(int(f))])
+            attempted.append(["/usr/sbin/iw", "dev", dev, "set", "freq", str(int(f)), f"rc={rc2}", err2 or ""])
             if rc2 == 0:
                 rc, _, err = rc2, out2, err2
                 break

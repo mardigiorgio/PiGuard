@@ -49,7 +49,9 @@
   // Periodically refresh current iface info to reflect live channel updates
   let pollTimer
   onMount(() => {
-    pollTimer = setInterval(refreshInfo, 2000)
+    pollTimer = setInterval(() => {
+      if (dev) refreshInfo()
+    }, 1000) // Poll every 1 second for live channel updates
     return () => clearInterval(pollTimer)
   })
 
@@ -153,7 +155,13 @@
       <div>Exists: <span class="font-mono">{String(info.exists)}</span></div>
       <div>Up: <span class="font-mono">{String(info.up)}</span></div>
       <div>Type: <span class="font-mono">{info.type || '-'}</span></div>
-      <div>Channel: <span class="font-mono">{info.channel ?? '-'}</span> ({info.freq ? info.freq + ' MHz' : '-'})</div>
+      <div class="flex items-center gap-2">
+        <span>Current Channel:</span>
+        <span class="font-mono text-lg font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">{info.channel ?? '-'}</span>
+        {#if info.freq}
+          <span class="text-slate-500">({info.freq} MHz{info.band ? ', ' + info.band + ' GHz' : ''})</span>
+        {/if}
+      </div>
     {/if}
   </div>
 

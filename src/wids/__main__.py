@@ -58,7 +58,7 @@ def sniffer(config: str, dwell: float, rssi_window: int, var_threshold: float, a
 
     # Preflight: check iface exists and is up
     try:
-        res = subprocess.run(["ip", "link", "show", iface], capture_output=True, text=True)
+        res = subprocess.run(["/usr/sbin/ip", "link", "show", iface], capture_output=True, text=True)
         if res.returncode != 0:
             click.secho(f"[sniffer] interface '{iface}' not found", fg="red")
             sys.exit(1)
@@ -259,9 +259,9 @@ def dev(config: str, no_sniffer: bool, ui: bool):
 def iface_up(dev: str):
     """Put an interface into monitor mode and set it UP."""
     cmds = [
-        ["ip", "link", "set", dev, "down"],
-        ["iw", "dev", dev, "set", "type", "monitor"],
-        ["ip", "link", "set", dev, "up"],
+        ["/usr/sbin/ip", "link", "set", dev, "down"],
+        ["/usr/sbin/iw", "dev", dev, "set", "type", "monitor"],
+        ["/usr/sbin/ip", "link", "set", dev, "up"],
     ]
     for c in cmds:
         rc = subprocess.call(["sudo", "-E"] + c if os.geteuid() != 0 else c)
