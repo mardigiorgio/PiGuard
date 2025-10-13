@@ -18,33 +18,15 @@ PiGuard is a Wi‑Fi intrusion detection system (WIDS) designed for home network
 - **UI**: Svelte + Vite
 - **Installer**: One‑command setup with interactive config and systemd services
 
-## Installation
+## Quick Start
 
-**One-line installation (recommended):**
+**One-line installation:**
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/mardigiorgio/PiGuard/main/install.sh | sudo bash
 ```
 
-**From local repository:**
-
-```bash
-git clone https://github.com/mardigiorgio/PiGuard.git
-cd PiGuard
-sudo ./install.sh
-```
-
-**Installation modes:**
-- `--express` - Fully automated with optimal defaults (default)
-- `--guided` - Step-by-step with explanations
-- `--advanced` - Full control over all options
-- `--headless` - Silent installation for remote setup
-- `--update` - Update existing PiGuard installation
-
-**For detailed installation guide:** [INSTALL.md](INSTALL.md)
-**Quick start guide:** [GETTING_STARTED.md](GETTING_STARTED.md)
-**Hardware compatibility:** [HARDWARE.md](HARDWARE.md)
-
+After installation, visit `http://YOUR_PI_IP:8080` to access the web interface.
 
 ## Requirements
 
@@ -63,167 +45,13 @@ sudo ./install.sh
 | **Power Anomalies** | Unusual signal strength patterns | Smart analysis and logging |
 | **Network Scanning** | People probing your network | Activity logs |
 
-## Web Interface
+## Documentation
 
-After installation, visit `http://YOUR_PI_IP:8080` to access the web interface.
-
-**Login:**
-- You'll be prompted to login with credentials configured during installation
-- Default username: `admin`
-- Password: Set during installation or found in `/etc/piguard/wids.yaml`
-- Sessions last 24 hours
-
-**Main tabs:**
-- **Overview** - See what's happening on your network right now
-- **Alerts** - Review security alerts and potential attacks
-- **Defense** - Configure which network to protect
-- **Device** - Manage Wi-Fi interfaces and channel settings
-- **Settings** - Adjust detection sensitivity
-- **Logs** - View detailed system logs
-
-## Updating PiGuard
-
-To update an existing installation to the latest version:
-
-```bash
-# Update with automatic backup
-sudo ./install.sh --update
-
-# Or via one-line command
-curl -sSL https://raw.githubusercontent.com/mardigiorgio/PiGuard/main/install.sh | sudo bash -s -- --update
-```
-
-The update process will:
-- Automatically back up your configuration and database
-- Update to the latest code
-- Rebuild dependencies and web interface
-- Restart services
-- Preserve all your settings
-
-Backups are stored in `/var/lib/piguard/backups/`
-
-## Managing PiGuard
-
-PiGuard runs as three background services:
-
-```bash
-# Check if everything is running
-sudo systemctl status piguard-api piguard-sniffer piguard-sensor
-
-# Restart if needed
-sudo systemctl restart piguard-sniffer
-sudo systemctl restart piguard-sensor
-sudo systemctl restart piguard-api
-
-# View logs
-journalctl -u piguard-api -f
-journalctl -u piguard-sniffer -f
-journalctl -u piguard-sensor -f
-```
-
-**What each service does:**
-- `piguard-api` — Web interface and API
-- `piguard-sniffer` — Captures Wi-Fi packets
-- `piguard-sensor` — Analyzes packets for attacks
-
-## Configuration
-
-Main config file: `/etc/piguard/wids.yaml`
-
-**Key settings you might want to change:**
-- `api.username` / `api.password`: Web UI login credentials
-- `api.api_key`: API authentication key (for backward compatibility)
-- `capture.iface`: Which Wi-Fi interface to monitor (e.g., `wlan0mon`)
-- `defense.ssid`: Your Wi-Fi network name to protect
-- `thresholds.deauth`: How sensitive the detection should be
-- `alerts`: Discord webhook or email settings for notifications
-
-Most settings can be changed through the web interface - no need to edit files manually.
-
-## Common Tasks
-
-**Make detection more sensitive:**
-- Increase `window_sec`, lower `global_limit` and `per_src_limit`, reduce `cooldown_sec`
-
-**Monitor specific channels only:**
-- Increase `hop.dwell_ms`, set channels to `[1,6,11]`, or switch to `mode=lock`
-
-**Optimize for your Pi:**
-- Pi 5/4: Can handle all features
-- Pi 3: Works great for home networks, might want to limit channels
-- Pi Zero 2: Basic monitoring only
-
-## Troubleshooting
-
-**Common issues:**
-
-| Problem | Solution |
-|---------|----------|
-| Can't access web interface | Check `sudo systemctl status piguard-api` |
-| Login fails | Verify username/password in `/etc/piguard/wids.yaml` |
-| "HTTP 401 Unauthorized" | Your session may have expired, login again |
-| No packets being captured | Make sure Wi-Fi interface supports monitor mode |
-| Services keep crashing | Check logs with `journalctl -u piguard-sniffer -f` |
-
-**Need help?**
-- [Installation Guide](INSTALL.md)
-- [Hardware Guide](HARDWARE.md)
-- [GitHub Issues](https://github.com/mardigiorgio/PiGuard/issues)
-
-## For Developers
-
-**Run locally:**
-```bash
-# Start API + sensor (+ sniffer via sudo) using configs/wids.yaml
-python -m wids dev --config configs/wids.yaml --ui
-```
-
-**CLI tools:**
-```bash
-python -m wids iface-up --dev wlan0mon
-python -m wids sniffer --config configs/wids.yaml
-python -m wids sensor  --config configs/wids.yaml
-```
-
-## Security Notes
-
-- PiGuard only monitors and alerts - it doesn't block attacks
-- All data stays on your Raspberry Pi (no cloud services)
-- API access is protected with a secure key
-- Consider using a dedicated Pi for monitoring if you're paranoid
-- Keep your Pi updated with security patches
-
-## What's Planned
-
-- Better mobile interface
-- More alert types
-- Improved performance on older Pi models
-- Package for easier installation
-- Docker container option
-
-## License
-
-MIT License
-
-Copyright (c) 2025 PiGuard
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+- [Installation Guide](INSTALL.md) — Detailed installation instructions, modes, and hardware setup
+- [Getting Started](GETTING_STARTED.md) — Quick start guide for new users
+- [Configuration Guide](CONFIGURATION.md) — Configure detection sensitivity, alerts, and monitoring
+- [Operations Guide](OPERATIONS.md) — Managing services, updating, and troubleshooting
+- [Hardware Guide](HARDWARE.md) — Hardware compatibility and recommendations
 
 ## Contributing
 
@@ -233,6 +61,10 @@ This is a learning project and contributions are welcome! Feel free to:
 - Ask questions in [GitHub Discussions](https://github.com/mardigiorgio/PiGuard/discussions)
 - Submit pull requests for improvements
 - Share your setup and experiences
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 ---
 
